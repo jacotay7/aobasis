@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import numpy as np
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Union
 from .utils import plot_basis_modes
 
 class BasisGenerator(ABC):
@@ -31,7 +31,7 @@ class BasisGenerator(ABC):
         """
         pass
     
-    def save(self, filepath: str | Path) -> None:
+    def save(self, filepath: Union[str, Path]) -> None:
         """
         Save the generated basis and actuator positions to a .npz file.
         """
@@ -46,7 +46,7 @@ class BasisGenerator(ABC):
         )
         
     @classmethod
-    def load(cls, filepath: str | Path) -> 'BasisGenerator':
+    def load(cls, filepath: Union[str, Path]) -> 'BasisGenerator':
         """
         Load a basis from a .npz file. 
         Note: This returns a generic container or re-instantiates the specific class if possible.
@@ -62,7 +62,7 @@ class BasisGenerator(ABC):
         instance.modes = modes
         return instance
 
-    def plot(self, count: int = 6, outfile: Optional[str | Path] = None, **kwargs):
+    def plot(self, count: int = 6, outfile: Optional[Union[str, Path]] = None, **kwargs):
         """Plot the generated modes."""
         if self.modes is None:
             raise ValueError("No modes to plot.")

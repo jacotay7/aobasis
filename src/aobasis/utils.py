@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
+from typing import Union
 import math
 from scipy.interpolate import griddata
 
@@ -20,7 +21,7 @@ def plot_basis_modes(
     modes: np.ndarray,
     positions: np.ndarray,
     count: int = 6,
-    outfile: Path | str | None = None,
+    outfile: Union[Path, str, None] = None,
     cmap: str = "coolwarm",
     title_prefix: str = "Mode",
     interpolate: bool = False,

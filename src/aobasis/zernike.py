@@ -1,5 +1,6 @@
 import numpy as np
 import math
+from typing import Tuple
 from .base import BasisGenerator
 
 class ZernikeBasisGenerator(BasisGenerator):
@@ -62,7 +63,7 @@ class ZernikeBasisGenerator(BasisGenerator):
         self.modes = np.column_stack(modes_list)
         return self.modes
 
-    def _noll_to_nm(self, j: int) -> tuple[int, int]:
+    def _noll_to_nm(self, j: int) -> Tuple[int, int]:
         """
         Convert Noll index j to radial order n and azimuthal frequency m.
         Based on Noll, J. Opt. Soc. Am. 66, 207 (1976).
