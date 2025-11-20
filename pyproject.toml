@@ -8,7 +8,7 @@ version = "1.0.0"
 description = "A package for generating AO basis sets (KL, Zernike, Fourier)"
 readme = "README.md"
 authors = [{ name = "Jacob Taylor", email = "jtaylor@keck.hawaii.edu" }]
-license = "MIT"
+license = { file = "LICENSE" }
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
