@@ -7,7 +7,7 @@ name = "aobasis"
 version = "1.0.0"
 description = "A package for generating AO basis sets (KL, Zernike, Fourier)"
 readme = "README.md"
-authors = [{ name = "Jacob Taylor", email = "jacotay7@example.com" }]
+authors = [{ name = "Jacob Taylor", email = "jtaylor@keck.hawaii.edu" }]
 license = "MIT"
 classifiers = [
     "Programming Language :: Python :: 3",
