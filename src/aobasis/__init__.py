@@ -1,3 +1,10 @@
+from importlib.metadata import version, PackageNotFoundError
+
+try:
+    __version__ = version("aobasis")
+except PackageNotFoundError:
+    __version__ = "unknown"
+
 from .base import BasisGenerator
 from .kl import KLBasisGenerator
 from .zernike import ZernikeBasisGenerator
