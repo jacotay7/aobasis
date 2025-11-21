@@ -5,6 +5,7 @@ A Python package for generating various modal basis sets for Adaptive Optics (AO
 ## Features
 
 - **Karhunen-Loève (KL) Modes**: Optimized for atmospheric turbulence (Von Kármán spectrum).
+  - Optional GPU acceleration available for large systems (requires CuPy).
 - **Zernike Polynomials**: Standard optical aberration modes (Noll indexing).
 - **Fourier Modes**: Sinusoidal basis sets.
 - **Zonal Basis**: Single actuator pokes (Identity).
@@ -18,6 +19,7 @@ A Python package for generating various modal basis sets for Adaptive Optics (AO
 
 ### Prerequisites
 - Python 3.8 or higher
+- (Optional) For GPU-accelerated KL generation: CUDA-compatible GPU and CuPy
 
 ### Install from Source
 Clone the repository and install using pip:
@@ -33,6 +35,55 @@ For development (editable install with test dependencies):
 pip install -e ".[dev]"
 ```
 
+### GPU Acceleration (Optional)
+To enable GPU acceleration for KL basis generation, you need to install CuPy and ensure you have a CUDA-compatible GPU.
+
+#### Requirements
+- NVIDIA GPU with CUDA support
+- CUDA Toolkit (version 11.x or 12.x)
+
+#### Installation via Conda (Recommended)
+This method automatically handles CUDA dependencies:
+
+```bash
+# Create a new conda environment (optional but recommended)
+conda create -n aobasis python=3.12
+conda activate aobasis
+
+# Install CuPy from conda-forge (auto-detects CUDA version)
+conda install -c conda-forge cupy
+
+# Install CUDA toolkit if not already present
+conda install -c nvidia cuda-toolkit
+```
+
+#### Installation via Pip
+If you prefer pip and already have CUDA installed on your system:
+
+```bash
+# For CUDA 12.x
+pip install cupy-cuda12x
+
+# For CUDA 11.x
+pip install cupy-cuda11x
+```
+
+#### Verify Installation
+Test that CuPy is working correctly:
+
+```python
+import cupy as cp
+print(f"CuPy version: {cp.__version__}")
+print(f"CUDA available: {cp.cuda.is_available()}")
+
+# Simple test
+a = cp.array([1, 2, 3])
+b = cp.array([4, 5, 6])
+print(f"Sum: {cp.asnumpy(a + b)}")  # Should print [5, 7, 9]
+```
+
+If you encounter any issues, consult the [CuPy installation guide](https://docs.cupy.dev/en/stable/install.html).
+
 ## Quick Start
 
 Here is a simple example of generating and plotting KL modes for a 10-meter telescope:
@@ -43,8 +94,8 @@ from aobasis import KLBasisGenerator, make_circular_actuator_grid
 # 1. Define the actuator geometry
 positions = make_circular_actuator_grid(telescope_diameter=10.0, grid_size=20)
 
-# 2. Initialize the generator
-kl_gen = KLBasisGenerator(positions, fried_parameter=0.16, outer_scale=30.0)
+# 2. Initialize the generator (use_gpu=True for GPU acceleration if available)
+kl_gen = KLBasisGenerator(positions, fried_parameter=0.16, outer_scale=30.0, use_gpu=False)
 
 # 3. Generate modes (excluding piston)
 modes = kl_gen.generate(n_modes=50, ignore_piston=True)
@@ -58,17 +109,21 @@ kl_gen.save("my_kl_basis.npz")
 
 ## Performance
 
-Generation times for 100 modes on a standard laptop (M1/M2 class):
+Generation times for 100 modes benchmarked on the following system:
+- **CPU**: AMD Ryzen 9 9950X3D (16-core, 32-thread)
+- **GPU**: NVIDIA GeForce RTX 5090 (32 GB)
+- **OS**: Linux (Ubuntu)
 
 | Basis | 16x16 Grid (~170 acts) | 32x32 Grid (~740 acts) | 64x64 Grid (~3100 acts) |
 |-------|------------------------|------------------------|-------------------------|
-| **KL** | 0.01s | 0.29s | 5.60s |
-| **Zernike** | 0.001s | 0.002s | 0.02s |
-| **Fourier** | 0.001s | 0.001s | 0.003s |
-| **Zonal** | <0.001s | <0.001s | 0.005s |
-| **Hadamard** | <0.001s | 0.004s | 0.09s |
+| **KL (CPU)** | 0.010s | 0.170s | 3.008s |
+| **KL (GPU)** | 0.005s | 0.019s | 0.202s |
+| **Zernike** | 0.001s | 0.002s | 0.005s |
+| **Fourier** | <0.001s | 0.001s | 0.003s |
+| **Zonal** | <0.001s | <0.001s | 0.003s |
+| **Hadamard** | <0.001s | 0.001s | 0.031s |
 
-*Note: KL basis generation is computationally intensive ($O(N^3)$) due to the dense covariance matrix diagonalization.*
+*Note: KL basis generation is computationally intensive ($O(N^3)$) due to the dense covariance matrix diagonalization. GPU acceleration provides significant speedup (8-15x) for larger grids.*
 
 ## Tutorials
 
