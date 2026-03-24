@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional, Set
 
 import numpy as np
 from scipy.spatial import cKDTree
@@ -30,7 +30,7 @@ class ZonalBasisGenerator(BasisGenerator):
         return self.modes
 
 
-def _build_conflict_graph(positions: np.ndarray, min_distance: float) -> list[set[int]]:
+def _build_conflict_graph(positions: np.ndarray, min_distance: float) -> List[Set[int]]:
     n_actuators = positions.shape[0]
     adjacency = [set() for _ in range(n_actuators)]
 
@@ -46,7 +46,7 @@ def _build_conflict_graph(positions: np.ndarray, min_distance: float) -> list[se
     return adjacency
 
 
-def _dsatur_coloring(adjacency: list[set[int]]) -> np.ndarray:
+def _dsatur_coloring(adjacency: List[Set[int]]) -> np.ndarray:
     n_vertices = len(adjacency)
     colors = np.full(n_vertices, -1, dtype=int)
     neighbor_colors = [set() for _ in range(n_vertices)]
