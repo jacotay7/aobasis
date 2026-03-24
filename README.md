@@ -9,6 +9,7 @@ A Python package for generating various modal basis sets for Adaptive Optics (AO
 - **Zernike Polynomials**: Standard optical aberration modes (Noll indexing).
 - **Fourier Modes**: Sinusoidal basis sets.
 - **Zonal Basis**: Single actuator pokes (Identity).
+- **Zonal Fast Basis**: Distance-constrained grouped actuator pokes for faster calibration sweeps.
 - **Hadamard Basis**: Orthogonal binary patterns for calibration.
 - **Flexible Geometry**: Works with arbitrary actuator positions (defaulting to circular grids).
 - **Piston Removal**: Option to exclude piston/DC modes from generation.
@@ -107,6 +108,27 @@ kl_gen.plot(count=6, title_prefix="KL Mode")
 kl_gen.save("my_kl_basis.npz")
 ```
 
+## Zonal Fast Basis
+
+`ZonalFastBasisGenerator` groups actuators into binary poke patterns such that no two actuators in the same mode are closer than a user-defined distance `D`. This is useful when you want a compact calibration basis that reduces the number of measurements compared with pure zonal pokes.
+
+```python
+from aobasis import ZonalFastBasisGenerator, make_circular_actuator_grid
+
+positions = make_circular_actuator_grid(telescope_diameter=10.0, grid_size=20)
+
+# Distance threshold in the same units as the actuator coordinates.
+zonal_fast_gen = ZonalFastBasisGenerator(positions, min_distance=0.8)
+
+# Omitting n_modes returns the full grouped basis.
+zonal_fast_modes = zonal_fast_gen.generate()
+print(zonal_fast_modes.shape)
+
+zonal_fast_gen.plot(count=min(12, zonal_fast_modes.shape[1]), title_prefix="Zonal Fast")
+```
+
+The returned matrix still has the standard `(n_actuators, n_modes)` layout, but each column is now a sparse binary pattern rather than a single-actuator poke. Every actuator appears in exactly one column of the full basis.
+
 ## Performance
 
 Generation times for 100 modes benchmarked on the following system:
@@ -121,6 +143,7 @@ Generation times for 100 modes benchmarked on the following system:
 | **Zernike** | 0.001s | 0.002s | 0.005s |
 | **Fourier** | <0.001s | 0.001s | 0.003s |
 | **Zonal** | <0.001s | <0.001s | 0.003s |
+| **Zonal Fast** | depends on spacing threshold | depends on spacing threshold | depends on spacing threshold |
 | **Hadamard** | <0.001s | 0.001s | 0.031s |
 
 *Note: KL basis generation is computationally intensive ($O(N^3)$) due to the dense covariance matrix diagonalization. GPU acceleration provides significant speedup (8-15x) for larger grids.*
@@ -129,7 +152,7 @@ Generation times for 100 modes benchmarked on the following system:
 
 We provide Jupyter notebooks to help you get started.
 
-1.  **Getting Started**: `tutorials/getting_started.ipynb` covers all supported basis types and features.
+1.  **Getting Started**: `tutorials/getting_started.ipynb` covers all supported basis types, including zonal fast grouped pokes.
 
 To run the tutorials:
 ```bash
@@ -171,7 +194,7 @@ If you encounter any bugs or have feature requests, please file an issue on the 
 For questions or support, please contact:
 
 **User Name**  
-Email: jtaylor@keck.hawaii.edu
+Email: jacobataylor7@gmail.com
 
 ## License
 

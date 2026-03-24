@@ -5,9 +5,21 @@ from aobasis import (
     ZernikeBasisGenerator, 
     FourierBasisGenerator,
     ZonalBasisGenerator,
+    ZonalFastBasisGenerator,
     HadamardBasisGenerator,
     make_circular_actuator_grid
 )
+
+
+def assert_min_spacing_within_modes(positions, modes, min_distance):
+    for mode_index in range(modes.shape[1]):
+        active = positions[modes[:, mode_index] > 0.5]
+        if active.shape[0] < 2:
+            continue
+        deltas = active[:, None, :] - active[None, :, :]
+        distances = np.linalg.norm(deltas, axis=-1)
+        upper_triangle = distances[np.triu_indices(active.shape[0], k=1)]
+        assert np.all(upper_triangle >= min_distance - 1e-12)
 
 @pytest.fixture
 def grid():
@@ -183,6 +195,65 @@ def test_zonal_all_modes(small_grid):
     modes = gen.generate(n_modes=small_grid.shape[0])
     assert modes.shape == (small_grid.shape[0], small_grid.shape[0])
     assert np.allclose(modes, np.eye(small_grid.shape[0]))
+
+def test_zonal_fast_generation_path_graph():
+    positions = np.array([
+        [0.0, 0.0],
+        [1.0, 0.0],
+        [2.0, 0.0],
+    ])
+
+    gen = ZonalFastBasisGenerator(positions, min_distance=1.1)
+    modes = gen.generate()
+
+    assert modes.shape == (3, 2)
+    assert np.allclose(modes.sum(axis=1), 1.0)
+    assert np.allclose(modes.T @ modes, np.diag(np.diag(modes.T @ modes)))
+    assert_min_spacing_within_modes(positions, modes, min_distance=1.1)
+
+def test_zonal_fast_generation_clique():
+    positions = np.array([
+        [0.0, 0.0],
+        [1.0, 0.0],
+        [0.5, np.sqrt(3.0) / 2.0],
+    ])
+
+    gen = ZonalFastBasisGenerator(positions, min_distance=1.01)
+    modes = gen.generate()
+
+    assert modes.shape == (3, 3)
+    assert np.allclose(modes, np.eye(3))
+
+def test_zonal_fast_single_mode_when_distance_is_small():
+    positions = np.array([
+        [0.0, 0.0],
+        [1.0, 0.0],
+        [2.0, 0.0],
+        [3.0, 0.0],
+    ])
+
+    gen = ZonalFastBasisGenerator(positions, min_distance=0.5)
+    modes = gen.generate()
+
+    assert modes.shape == (4, 1)
+    assert np.allclose(modes[:, 0], np.ones(4))
+
+def test_zonal_fast_mode_subset_and_errors():
+    positions = np.array([
+        [0.0, 0.0],
+        [1.0, 0.0],
+        [2.0, 0.0],
+    ])
+
+    gen = ZonalFastBasisGenerator(positions, min_distance=1.1)
+    subset = gen.generate(n_modes=1)
+    assert subset.shape == (3, 1)
+
+    with pytest.raises(ValueError, match="full basis only contains"):
+        gen.generate(n_modes=3)
+
+    with pytest.raises(ValueError, match="non-negative"):
+        ZonalFastBasisGenerator(positions, min_distance=-0.1)
 
 def test_hadamard_generation(grid):
     gen = HadamardBasisGenerator(grid)
