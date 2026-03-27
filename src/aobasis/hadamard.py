@@ -16,6 +16,11 @@ class HadamardBasisGenerator(BasisGenerator):
         we find the next power of 2 >= n_actuators, generate the Hadamard matrix,
         and truncate it to the number of actuators (rows) and requested modes (columns).
         """
+        n_modes = self._validate_n_modes(n_modes)
+        if n_modes == 0:
+            self.modes = np.zeros((self.n_actuators, 0), dtype=int)
+            return self.modes
+
         # Find next power of 2 covering the number of actuators
         # We need at least n_actuators rows to define the pattern on the grid
         # And we need enough columns for n_modes

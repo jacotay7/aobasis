@@ -4,6 +4,20 @@ from pathlib import Path
 from typing import Tuple, Optional, Union
 from .utils import plot_basis_modes
 
+
+def _validate_positions_array(positions: np.ndarray) -> np.ndarray:
+    try:
+        array = np.asarray(positions, dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("positions must be a finite numeric array with shape (n_actuators, 2).") from exc
+
+    if array.ndim != 2 or array.shape[1] != 2:
+        raise ValueError("positions must have shape (n_actuators, 2).")
+    if not np.all(np.isfinite(array)):
+        raise ValueError("positions must contain only finite values.")
+
+    return array
+
 class BasisGenerator(ABC):
     """
     Abstract base class for AO basis generators.
@@ -14,9 +28,21 @@ class BasisGenerator(ABC):
         Args:
             positions: (N, 2) array of actuator coordinates (x, y) in meters.
         """
-        self.positions = np.array(positions)
+        self.positions = _validate_positions_array(positions)
         self.n_actuators = self.positions.shape[0]
         self.modes: Optional[np.ndarray] = None
+
+    def _validate_n_modes(self, n_modes: int, max_modes: Optional[int] = None) -> int:
+        if isinstance(n_modes, bool) or not isinstance(n_modes, (int, np.integer)):
+            raise ValueError("n_modes must be an integer.")
+
+        n_modes = int(n_modes)
+        if n_modes < 0:
+            raise ValueError("n_modes must be non-negative.")
+        if max_modes is not None and n_modes > max_modes:
+            raise ValueError(f"Cannot generate {n_modes} modes; maximum available is {max_modes}.")
+
+        return n_modes
         
     @abstractmethod
     def generate(self, n_modes: int, **kwargs) -> np.ndarray:
@@ -73,4 +99,5 @@ class ConcreteBasis(BasisGenerator):
     def generate(self, n_modes: int, **kwargs) -> np.ndarray:
         if self.modes is None:
             raise NotImplementedError("This is a loaded basis container.")
+        n_modes = self._validate_n_modes(n_modes, max_modes=self.modes.shape[1])
         return self.modes[:, :n_modes]

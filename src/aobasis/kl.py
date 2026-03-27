@@ -99,6 +99,10 @@ class KLBasisGenerator(BasisGenerator):
     
     def __init__(self, positions: np.ndarray, fried_parameter: float = 0.16, outer_scale: float = 30.0, use_gpu: bool = False):
         super().__init__(positions)
+        if not np.isscalar(fried_parameter) or not np.isfinite(fried_parameter) or fried_parameter <= 0:
+            raise ValueError("fried_parameter must be a positive finite scalar.")
+        if not np.isscalar(outer_scale) or not np.isfinite(outer_scale) or outer_scale <= 0:
+            raise ValueError("outer_scale must be a positive finite scalar.")
         self.fried_parameter = fried_parameter
         self.outer_scale = outer_scale
         self.eigenvalues = None
@@ -177,6 +181,14 @@ class KLBasisGenerator(BasisGenerator):
         return cov
 
     def generate(self, n_modes: int, ignore_piston: bool = False, **kwargs) -> np.ndarray:
+        max_modes = self.n_actuators - (1 if ignore_piston else 0)
+        n_modes = self._validate_n_modes(n_modes, max_modes=max_modes)
+
+        if n_modes == 0:
+            self.eigenvalues = np.array([], dtype=float)
+            self.modes = np.zeros((self.n_actuators, 0), dtype=float)
+            return self.modes
+
         cov = self._von_karman_covariance()
         
         if self.use_gpu:

@@ -5,8 +5,29 @@ from typing import Union
 import math
 from scipy.interpolate import griddata
 
+
+def _validate_positive_finite_scalar(value: float, name: str) -> float:
+    if not np.isscalar(value) or not np.isfinite(value):
+        raise ValueError(f"{name} must be a finite scalar.")
+    if value <= 0:
+        raise ValueError(f"{name} must be positive.")
+    return float(value)
+
+
+def _validate_non_negative_integer(value: int, name: str, minimum: int = 0) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+        raise ValueError(f"{name} must be an integer.")
+    value = int(value)
+    if value < minimum:
+        comparator = "positive" if minimum == 1 else f">= {minimum}"
+        raise ValueError(f"{name} must be {comparator}.")
+    return value
+
 def make_circular_actuator_grid(telescope_diameter: float, grid_size: int) -> np.ndarray:
     """Return actuator coordinates for a square grid clipped by the circular pupil."""
+    telescope_diameter = _validate_positive_finite_scalar(telescope_diameter, "telescope_diameter")
+    grid_size = _validate_non_negative_integer(grid_size, "grid_size", minimum=1)
+
     pupil_radius = 0.5 * telescope_diameter
     axis = np.linspace(-pupil_radius, pupil_radius, grid_size)
     xx, yy = np.meshgrid(axis, axis)
@@ -40,9 +61,27 @@ def plot_basis_modes(
         interpolate: If True, interpolate the modes onto a dense grid for visualization.
         resolution: Resolution of the interpolation grid (resolution x resolution).
     """
+    positions = np.asarray(positions, dtype=float)
+    modes = np.asarray(modes, dtype=float)
+
+    if positions.ndim != 2 or positions.shape[1] != 2:
+        raise ValueError("positions must have shape (n_actuators, 2).")
+    if modes.ndim != 2:
+        raise ValueError("modes must have shape (n_actuators, n_modes).")
+    if not np.all(np.isfinite(positions)):
+        raise ValueError("positions must contain only finite values.")
+    if not np.all(np.isfinite(modes)):
+        raise ValueError("modes must contain only finite values.")
+
+    count = _validate_non_negative_integer(count, "count", minimum=1)
+    if interpolate:
+        resolution = _validate_non_negative_integer(resolution, "resolution", minimum=1)
+
     n_act = positions.shape[0]
     if modes.shape[0] != n_act:
         raise ValueError(f"Mode dimension 0 ({modes.shape[0]}) does not match actuator count ({n_act})")
+    if modes.shape[1] == 0:
+        raise ValueError("modes must contain at least one column to plot.")
 
     cols = min(count, 4)
     rows = math.ceil(count / cols)
@@ -118,8 +157,15 @@ def make_concentric_actuator_grid(telescope_diameter: float, n_rings: int, n_poi
         n_rings: Number of rings (excluding center).
         n_points_innermost: Number of points in the first ring. Subsequent rings have i * n_points_innermost points.
     """
+    telescope_diameter = _validate_positive_finite_scalar(telescope_diameter, "telescope_diameter")
+    n_rings = _validate_non_negative_integer(n_rings, "n_rings", minimum=0)
+    n_points_innermost = _validate_non_negative_integer(n_points_innermost, "n_points_innermost", minimum=1)
+
     positions = [[0.0, 0.0]] # Central actuator
-    
+
+    if n_rings == 0:
+        return np.array(positions)
+
     radius_step = (telescope_diameter / 2) / n_rings
     
     for ring in range(1, n_rings + 1):

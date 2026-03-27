@@ -20,6 +20,7 @@ class ZonalBasisGenerator(BasisGenerator):
                      If n_modes < n_actuators, returns the first n_modes actuators.
                      If n_modes > n_actuators, raises ValueError (or we could pad with zeros, but that's weird).
         """
+        n_modes = self._validate_n_modes(n_modes, max_modes=self.n_actuators)
         if n_modes > self.n_actuators:
             raise ValueError(f"Cannot generate {n_modes} zonal modes for {self.n_actuators} actuators.")
             
@@ -74,14 +75,78 @@ def _dsatur_coloring(adjacency: List[Set[int]]) -> np.ndarray:
     return colors
 
 
+def _renumber_colors(colors: np.ndarray) -> np.ndarray:
+    mapping = {}
+    next_color = 0
+    renumbered = np.empty_like(colors)
+
+    for index, color in enumerate(colors):
+        color_int = int(color)
+        if color_int not in mapping:
+            mapping[color_int] = next_color
+            next_color += 1
+        renumbered[index] = mapping[color_int]
+
+    return renumbered
+
+
+def _infer_uniform_step(values: np.ndarray) -> Optional[float]:
+    if values.size < 2:
+        return None
+
+    sorted_values = np.unique(np.sort(values))
+    diffs = np.diff(sorted_values)
+    diffs = diffs[diffs > 1e-12]
+    if diffs.size == 0:
+        return None
+
+    step = float(diffs.min())
+    ratios = diffs / step
+    if not np.allclose(ratios, np.round(ratios), rtol=1e-8, atol=1e-8):
+        return None
+
+    return step
+
+
+def _grid_modulo_coloring(positions: np.ndarray, min_distance: float) -> Optional[np.ndarray]:
+    if positions.shape[0] == 0:
+        return np.zeros(0, dtype=int)
+
+    step_x = _infer_uniform_step(positions[:, 0])
+    step_y = _infer_uniform_step(positions[:, 1])
+    if step_x is None or step_y is None:
+        return None
+    if not np.isclose(step_x, step_y, rtol=1e-8, atol=1e-8):
+        return None
+
+    step = float(step_x)
+    origin_x = float(np.min(positions[:, 0]))
+    origin_y = float(np.min(positions[:, 1]))
+
+    x_indices = np.rint((positions[:, 0] - origin_x) / step).astype(int)
+    y_indices = np.rint((positions[:, 1] - origin_y) / step).astype(int)
+
+    rebuilt_x = origin_x + step * x_indices
+    rebuilt_y = origin_y + step * y_indices
+    if not np.allclose(rebuilt_x, positions[:, 0], rtol=1e-8, atol=1e-8):
+        return None
+    if not np.allclose(rebuilt_y, positions[:, 1], rtol=1e-8, atol=1e-8):
+        return None
+
+    modulo = max(int(np.ceil(min_distance / step - 1e-12)), 1)
+    colors = np.mod(x_indices, modulo) + modulo * np.mod(y_indices, modulo)
+    return _renumber_colors(colors.astype(int, copy=False))
+
+
 def compute_zonal_fast_basis(positions: np.ndarray, min_distance: float) -> np.ndarray:
     """
     Compute a distance-constrained zonal basis.
 
     Each returned mode is a binary poke pattern. Actuators that are closer than
-    ``min_distance`` cannot appear in the same mode, so the basis is built by
-    coloring the actuator conflict graph and turning each color into one column
-    of the returned matrix.
+    ``min_distance`` cannot appear in the same mode. For square-lattice actuator
+    layouts the basis uses a modulo coloring of the lattice. For non-grid
+    actuator layouts it falls back to greedy coloring of the actuator conflict
+    graph.
 
     Args:
         positions: ``(n_actuators, 2)`` array of actuator coordinates.
@@ -98,8 +163,10 @@ def compute_zonal_fast_basis(positions: np.ndarray, min_distance: float) -> np.n
     if positions.shape[0] == 0:
         return np.zeros((0, 0), dtype=float)
 
-    adjacency = _build_conflict_graph(positions, min_distance)
-    colors = _dsatur_coloring(adjacency)
+    colors = _grid_modulo_coloring(positions, min_distance)
+    if colors is None:
+        adjacency = _build_conflict_graph(positions, min_distance)
+        colors = _dsatur_coloring(adjacency)
     n_modes = int(colors.max()) + 1
 
     basis = np.zeros((positions.shape[0], n_modes), dtype=float)
@@ -117,7 +184,7 @@ class ZonalFastBasisGenerator(BasisGenerator):
 
     def __init__(self, positions: np.ndarray, min_distance: float):
         super().__init__(positions)
-        if min_distance < 0:
+        if not np.isscalar(min_distance) or not np.isfinite(min_distance) or min_distance < 0:
             raise ValueError("min_distance must be non-negative.")
         self.min_distance = float(min_distance)
         self.full_modes: Optional[np.ndarray] = None
@@ -140,8 +207,7 @@ class ZonalFastBasisGenerator(BasisGenerator):
             self.modes = full_basis
             return self.modes
 
-        if n_modes < 0:
-            raise ValueError("n_modes must be non-negative.")
+        n_modes = self._validate_n_modes(n_modes)
         if n_modes > full_basis.shape[1]:
             raise ValueError(
                 f"Cannot generate {n_modes} zonal-fast modes; full basis only contains {full_basis.shape[1]} modes."

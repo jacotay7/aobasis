@@ -110,21 +110,27 @@ kl_gen.save("my_kl_basis.npz")
 
 ## Zonal Fast Basis
 
-`ZonalFastBasisGenerator` groups actuators into binary poke patterns such that no two actuators in the same mode are closer than a user-defined distance `D`. This is useful when you want a compact calibration basis that reduces the number of measurements compared with pure zonal pokes.
+`ZonalFastBasisGenerator` groups actuators into binary poke patterns such that no two actuators in the same mode are closer than a user-defined distance `D`. This is useful when you want a compact calibration basis that reduces the number of measurements compared with pure zonal pokes. For square-grid actuator layouts it uses a modulo lattice grouping directly, and for exotic layouts it falls back to a greedy graph-coloring approach.
 
 ```python
-from aobasis import ZonalFastBasisGenerator, make_circular_actuator_grid
+import numpy as np
 
+from aobasis import ZonalFastBasisGenerator, make_circular_actuator_grid, make_concentric_actuator_grid
+
+# Example 1: grid-like actuator positions clipped by a circular pupil.
 positions = make_circular_actuator_grid(telescope_diameter=10.0, grid_size=20)
+grid_gen = ZonalFastBasisGenerator(positions, min_distance=0.8)
+grid_modes = grid_gen.generate()
+print("Grid layout:", grid_modes.shape)
+grid_gen.plot(count=min(12, grid_modes.shape[1]), title_prefix="Zonal Fast Grid")
 
-# Distance threshold in the same units as the actuator coordinates.
-zonal_fast_gen = ZonalFastBasisGenerator(positions, min_distance=0.8)
-
-# Omitting n_modes returns the full grouped basis.
-zonal_fast_modes = zonal_fast_gen.generate()
-print(zonal_fast_modes.shape)
-
-zonal_fast_gen.plot(count=min(12, zonal_fast_modes.shape[1]), title_prefix="Zonal Fast")
+# Example 2: non-grid actuator positions.
+exotic_positions = make_concentric_actuator_grid(telescope_diameter=10.0, n_rings=5)
+exotic_positions = exotic_positions + 0.03 * np.sin(exotic_positions)
+exotic_gen = ZonalFastBasisGenerator(exotic_positions, min_distance=1.0)
+exotic_modes = exotic_gen.generate()
+print("Exotic layout:", exotic_modes.shape)
+exotic_gen.plot(count=min(12, exotic_modes.shape[1]), title_prefix="Zonal Fast Exotic")
 ```
 
 The returned matrix still has the standard `(n_actuators, n_modes)` layout, but each column is now a sparse binary pattern rather than a single-actuator poke. Every actuator appears in exactly one column of the full basis.

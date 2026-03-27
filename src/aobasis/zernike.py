@@ -10,6 +10,8 @@ class ZernikeBasisGenerator(BasisGenerator):
     
     def __init__(self, positions: np.ndarray, pupil_radius: float):
         super().__init__(positions)
+        if not np.isscalar(pupil_radius) or not np.isfinite(pupil_radius) or pupil_radius <= 0:
+            raise ValueError("pupil_radius must be a positive finite scalar.")
         self.pupil_radius = pupil_radius
 
     def _zernike_radial(self, n: int, m: int, rho: np.ndarray) -> np.ndarray:
@@ -38,6 +40,11 @@ class ZernikeBasisGenerator(BasisGenerator):
         j=3: Tilt (Y-tilt)
         ...
         """
+        n_modes = self._validate_n_modes(n_modes)
+        if n_modes == 0:
+            self.modes = np.zeros((self.n_actuators, 0), dtype=float)
+            return self.modes
+
         # Normalize coordinates
         x = self.positions[:, 0] / self.pupil_radius
         y = self.positions[:, 1] / self.pupil_radius

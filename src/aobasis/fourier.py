@@ -8,6 +8,8 @@ class FourierBasisGenerator(BasisGenerator):
     
     def __init__(self, positions: np.ndarray, pupil_diameter: float):
         super().__init__(positions)
+        if not np.isscalar(pupil_diameter) or not np.isfinite(pupil_diameter) or pupil_diameter <= 0:
+            raise ValueError("pupil_diameter must be a positive finite scalar.")
         self.pupil_diameter = pupil_diameter
 
     def generate(self, n_modes: int, ignore_piston: bool = False, **kwargs) -> np.ndarray:
@@ -15,6 +17,11 @@ class FourierBasisGenerator(BasisGenerator):
         Generate Fourier modes.
         We generate pairs of sin/cos for increasing spatial frequencies.
         """
+        n_modes = self._validate_n_modes(n_modes)
+        if n_modes == 0:
+            self.modes = np.zeros((self.n_actuators, 0), dtype=float)
+            return self.modes
+
         x = self.positions[:, 0]
         y = self.positions[:, 1]
         

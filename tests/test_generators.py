@@ -255,6 +255,18 @@ def test_zonal_fast_mode_subset_and_errors():
     with pytest.raises(ValueError, match="non-negative"):
         ZonalFastBasisGenerator(positions, min_distance=-0.1)
 
+
+def test_zonal_fast_uses_modulo_coloring_on_grid_positions():
+    axis = np.arange(5, dtype=float)
+    xx, yy = np.meshgrid(axis, axis, indexing="xy")
+    positions = np.column_stack((xx.ravel(), yy.ravel()))
+
+    gen = ZonalFastBasisGenerator(positions, min_distance=2.0)
+    modes = gen.generate()
+
+    assert modes.shape == (25, 4)
+    assert_min_spacing_within_modes(positions, modes, min_distance=2.0)
+
 def test_hadamard_generation(grid):
     gen = HadamardBasisGenerator(grid)
     modes = gen.generate(n_modes=8)
