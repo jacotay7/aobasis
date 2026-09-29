@@ -101,7 +101,12 @@ def plot_basis_modes(
 
     cols = min(count, 4)
     rows = math.ceil(count / cols)
-    import matplotlib.pyplot as plt  # imported here: heavy, and it picks a GUI backend
+    try:  # imported here: optional, heavy, and it picks a GUI backend
+        import matplotlib.pyplot as plt
+    except ImportError as exc:
+        raise ImportError(
+            "Plotting needs matplotlib; install it with: pip install 'aobasis[plot]'"
+        ) from exc
     from scipy.interpolate import griddata
 
     fig, axes = plt.subplots(rows, cols, figsize=(3 * cols, 3 * rows))
