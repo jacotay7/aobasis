@@ -183,3 +183,14 @@ def test_importing_aobasis_does_not_import_matplotlib():
     code = "import aobasis, sys; print('matplotlib.pyplot' in sys.modules)"
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "False"
+
+
+def test_plotting_without_matplotlib_names_the_extra(monkeypatch):
+    import sys
+
+    from aobasis import plot_basis_modes
+
+    monkeypatch.setitem(sys.modules, "matplotlib", None)
+    monkeypatch.setitem(sys.modules, "matplotlib.pyplot", None)
+    with pytest.raises(ImportError, match=r"aobasis\[plot\]"):
+        plot_basis_modes(np.eye(3), np.zeros((3, 2)), count=1)

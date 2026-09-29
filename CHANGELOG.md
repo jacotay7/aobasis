@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0
+
+### Changed
+
+- **matplotlib is optional.** It moved to the `plot` extra (`pip install aobasis[plot]`), so installing aobasis as a library no longer pulls in matplotlib. `plot_basis_modes` and `BasisGenerator.plot` raise an `ImportError` naming the extra when matplotlib is missing. The `dev` extra still includes it.
+
 ## 1.1.0
 
 ### Fixed
