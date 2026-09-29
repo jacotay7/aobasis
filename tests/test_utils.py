@@ -2,6 +2,9 @@ import numpy as np
 import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock, call
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot  # noqa: F401  (so the tests can patch it; aobasis imports it lazily)
 from aobasis.utils import make_circular_actuator_grid, make_concentric_actuator_grid, plot_basis_modes
 
 def test_make_circular_actuator_grid():
@@ -70,7 +73,7 @@ def test_make_concentric_actuator_grid_radius():
     distances = np.linalg.norm(positions, axis=1)
     assert np.all(distances <= radius * 1.0000001)
 
-@patch("aobasis.utils.plt")
+@patch("matplotlib.pyplot")
 def test_plot_basis_modes(mock_plt):
     # Setup mock data
     n_actuators = 20
@@ -89,7 +92,7 @@ def test_plot_basis_modes(mock_plt):
     assert mock_plt.subplots.called
     assert mock_plt.show.called
 
-@patch("aobasis.utils.plt")
+@patch("matplotlib.pyplot")
 def test_plot_basis_modes_save(mock_plt, tmp_path):
     # Setup mock data
     n_actuators = 20
@@ -110,7 +113,7 @@ def test_plot_basis_modes_save(mock_plt, tmp_path):
     mock_plt.savefig.assert_called_with(outfile, dpi=150)
     assert mock_plt.close.called
 
-@patch("aobasis.utils.plt")
+@patch("matplotlib.pyplot")
 def test_plot_basis_modes_interpolate(mock_plt):
     # Setup mock data
     n_actuators = 20
@@ -130,7 +133,7 @@ def test_plot_basis_modes_interpolate(mock_plt):
     # We can't easily check if imshow was called on the axes objects without more complex mocking,
     # but we can check that no errors were raised.
 
-@patch("aobasis.utils.plt")
+@patch("matplotlib.pyplot")
 def test_plot_basis_modes_with_title_prefix(mock_plt):
     """Test plotting with custom title prefix."""
     n_actuators = 20
@@ -146,7 +149,7 @@ def test_plot_basis_modes_with_title_prefix(mock_plt):
     
     assert mock_plt.subplots.called
 
-@patch("aobasis.utils.plt")
+@patch("matplotlib.pyplot")
 def test_plot_basis_modes_count_exceeds_available(mock_plt):
     """Test plotting when count exceeds available modes."""
     n_actuators = 20
@@ -164,7 +167,7 @@ def test_plot_basis_modes_count_exceeds_available(mock_plt):
     # Should only plot available modes
     assert mock_plt.subplots.called
 
-@patch("aobasis.utils.plt")
+@patch("matplotlib.pyplot")
 def test_plot_basis_modes_all_params(mock_plt):
     """Test plotting with all parameters."""
     n_actuators = 20
@@ -203,7 +206,7 @@ def test_plot_basis_modes_1d_modes():
     modes = np.random.rand(n_actuators)  # 1D array
     
     # Should work by treating as single mode
-    with patch("aobasis.utils.plt") as mock_plt:
+    with patch("matplotlib.pyplot") as mock_plt:
         mock_fig = MagicMock()
         mock_axes = MagicMock()
         mock_plt.subplots.return_value = (mock_fig, mock_axes)

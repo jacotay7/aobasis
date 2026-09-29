@@ -41,11 +41,13 @@ def test_kl_generation(grid):
     # Test ignore_piston
     modes_no_piston = gen.generate(n_modes=10, ignore_piston=True)
     assert modes_no_piston.shape == (grid.shape[0], 10)
-    # The first mode of no_piston should be the second mode of with_piston
-    # (Assuming first mode was piston-like and largest variance)
-    # Note: KL modes sign is arbitrary, so check absolute correlation
-    corr = np.abs(np.dot(modes_no_piston[:, 0], modes[:, 1]))
-    assert corr > 0.99
+    # Removing piston leaves zero-mean modes; the leading tip/tilt pair spans
+    # the same space as modes 1-2 of the full basis (the pair is degenerate,
+    # so individual vectors can rotate within it).
+    assert np.allclose(modes_no_piston.mean(axis=0), 0.0, atol=1e-12)
+    tip_tilt = modes_no_piston[:, :2]
+    reference = modes[:, 1:3]
+    assert np.allclose(tip_tilt @ tip_tilt.T, reference @ reference.T, atol=1e-6)
 
 def test_kl_cpu_covariance(small_grid):
     """Test CPU covariance computation explicitly."""
@@ -84,7 +86,7 @@ def test_kl_with_different_parameters(small_grid):
     # Different outer scales should give different eigenvalues
     assert not np.allclose(gen3.eigenvalues, gen4.eigenvalues)
 
-def test_kl_gpu_fallback_warning(small_grid, capsys):
+def test_kl_gpu_fallback_warning(small_grid):
     """Test that GPU fallback warning is shown when CuPy is not available."""
     # Temporarily make HAS_CUPY False by creating generator with use_gpu=True
     # but mocking the import
@@ -94,9 +96,8 @@ def test_kl_gpu_fallback_warning(small_grid, capsys):
     try:
         # Force HAS_CUPY to False
         kl_module.HAS_CUPY = False
-        gen = KLBasisGenerator(small_grid, use_gpu=True)
-        captured = capsys.readouterr()
-        assert "Warning: CuPy not found" in captured.out
+        with pytest.warns(RuntimeWarning, match="CuPy not found"):
+            gen = KLBasisGenerator(small_grid, use_gpu=True)
         assert gen.use_gpu is False
     finally:
         # Restore original value

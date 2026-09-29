@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import warnings
 import numpy as np
 from pathlib import Path
 from typing import Tuple, Optional, Union
@@ -43,7 +44,25 @@ class BasisGenerator(ABC):
             raise ValueError(f"Cannot generate {n_modes} modes; maximum available is {max_modes}.")
 
         return n_modes
-        
+
+    def _finish(self, modes: np.ndarray, orthonormalize: bool = False) -> np.ndarray:
+        """Store ``modes`` as float, optionally orthonormalized, warning if rank-deficient."""
+        modes = np.asarray(modes, dtype=float)
+        n_modes = modes.shape[1]
+        if n_modes:
+            rank = int(np.linalg.matrix_rank(modes))
+            if rank < n_modes:
+                warnings.warn(
+                    f"{self.__class__.__name__}: {n_modes} modes have rank {rank} on "
+                    f"these {self.n_actuators} actuators; some modes are linearly dependent.",
+                    RuntimeWarning,
+                    stacklevel=3,
+                )
+            if orthonormalize:
+                modes = orthonormalize_modes(modes)
+        self.modes = modes
+        return modes
+
     @abstractmethod
     def generate(self, n_modes: int, **kwargs) -> np.ndarray:
         """
@@ -68,24 +87,36 @@ class BasisGenerator(ABC):
             filepath,
             modes=self.modes,
             positions=self.positions,
-            basis_type=self.__class__.__name__
+            basis_type=getattr(self, 'basis_type', None) or self.__class__.__name__,
         )
         
     @classmethod
     def load(cls, filepath: Union[str, Path]) -> 'BasisGenerator':
         """
-        Load a basis from a .npz file. 
-        Note: This returns a generic container or re-instantiates the specific class if possible.
-        For simplicity here, we might just return the data or a generic wrapper.
+        Load a basis saved with :meth:`save`.
+
+        Returns a :class:`ConcreteBasis` holding the saved modes and positions;
+        its ``basis_type`` attribute is the name of the generator that made it.
+        Generator parameters (pupil size, r0, ...) are not saved, so the
+        original generator is not rebuilt. Calling ``load`` on a specific
+        generator class (e.g. ``KLBasisGenerator.load``) raises ``ValueError``
+        if the file was saved by a different generator.
         """
-        data = np.load(filepath)
-        positions = data['positions']
-        modes = data['modes']
-        
-        # Create a generic instance to hold the data
-        # In a more complex system, we might factory this based on basis_type
+        with np.load(filepath) as data:
+            positions = data['positions']
+            modes = data['modes']
+            basis_type = str(data['basis_type']) if 'basis_type' in data else None
+
+        if (
+            basis_type is not None
+            and cls not in (BasisGenerator, ConcreteBasis)
+            and basis_type != cls.__name__
+        ):
+            raise ValueError(f"{filepath} holds a {basis_type} basis, not {cls.__name__}.")
+
         instance = ConcreteBasis(positions)
         instance.modes = modes
+        instance.basis_type = basis_type
         return instance
 
     def plot(self, count: int = 6, outfile: Optional[Union[str, Path]] = None, **kwargs):
@@ -94,8 +125,26 @@ class BasisGenerator(ABC):
             raise ValueError("No modes to plot.")
         plot_basis_modes(self.modes, self.positions, count=count, outfile=outfile, **kwargs)
 
+def orthonormalize_modes(modes: np.ndarray) -> np.ndarray:
+    """Gram-Schmidt the columns of ``modes`` in order (QR), keeping each sign.
+
+    Column ``k`` of the result spans the same space as columns ``0..k`` of the
+    input, so the modal ordering is preserved. Columns are unit L2 norm.
+    """
+    modes = np.asarray(modes, dtype=float)
+    if modes.shape[1] == 0:
+        return modes
+    q, r = np.linalg.qr(modes)
+    signs = np.sign(np.diag(r))
+    signs[signs == 0] = 1.0
+    return q * signs
+
+
 class ConcreteBasis(BasisGenerator):
     """Helper class for loading existing bases."""
+
+    basis_type: Optional[str] = None
+
     def generate(self, n_modes: int, **kwargs) -> np.ndarray:
         if self.modes is None:
             raise NotImplementedError("This is a loaded basis container.")

@@ -1,9 +1,7 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Union
 import math
-from scipy.interpolate import griddata
 
 
 def _validate_positive_finite_scalar(value: float, name: str) -> float:
@@ -22,6 +20,24 @@ def _validate_non_negative_integer(value: int, name: str, minimum: int = 0) -> i
         comparator = "positive" if minimum == 1 else f">= {minimum}"
         raise ValueError(f"{name} must be {comparator}.")
     return value
+
+def positions_from_mask(mask: np.ndarray, pitch: float) -> np.ndarray:
+    """Return ``(N, 2)`` actuator ``(x, y)`` coordinates for a 2-D boolean mask.
+
+    ``x`` follows columns and ``y`` rows, the origin is the centre of the mask,
+    and neighbouring cells are ``pitch`` apart. Rows are in the order of
+    ``mask[mask]`` (row-major), matching how a DM command vector is usually
+    scattered onto its actuator map.
+    """
+    pitch = _validate_positive_finite_scalar(pitch, "pitch")
+    mask = np.asarray(mask)
+    if mask.ndim != 2:
+        raise ValueError(f"mask must be 2-D, got shape {mask.shape}.")
+    rows, cols = np.nonzero(mask)
+    x = (cols - 0.5 * (mask.shape[1] - 1)) * pitch
+    y = (rows - 0.5 * (mask.shape[0] - 1)) * pitch
+    return np.column_stack((x, y)).astype(float)
+
 
 def make_circular_actuator_grid(telescope_diameter: float, grid_size: int) -> np.ndarray:
     """Return actuator coordinates for a square grid clipped by the circular pupil."""
@@ -85,6 +101,9 @@ def plot_basis_modes(
 
     cols = min(count, 4)
     rows = math.ceil(count / cols)
+    import matplotlib.pyplot as plt  # imported here: heavy, and it picks a GUI backend
+    from scipy.interpolate import griddata
+
     fig, axes = plt.subplots(rows, cols, figsize=(3 * cols, 3 * rows))
     axes_arr = np.atleast_1d(axes).flatten()
     
