@@ -1,5 +1,7 @@
-import numpy as np
 import math
+import warnings
+
+import numpy as np
 from typing import Tuple
 from .base import BasisGenerator
 
@@ -32,105 +34,80 @@ class ZernikeBasisGenerator(BasisGenerator):
         else:
             return R * np.sin(abs(m) * theta)
 
-    def generate(self, n_modes: int, ignore_piston: bool = False, **kwargs) -> np.ndarray:
+    def generate(
+        self, n_modes: int, ignore_piston: bool = False, orthonormalize: bool = False, **kwargs
+    ) -> np.ndarray:
         """
-        Generate Zernike modes using Noll indexing.
-        j=1: Piston
-        j=2: Tip (X-tilt)
-        j=3: Tilt (Y-tilt)
-        ...
+        Generate Noll-normalized Zernike modes in Noll order.
+
+        j=1 is piston, j=2 tip (x), j=3 tilt (y), j=4 defocus, j=5/6 the
+        oblique/vertical astigmatism, and so on: even j are cosine terms and
+        odd j sine terms (Noll, J. Opt. Soc. Am. 66, 207, 1976). Each mode
+        carries the Noll factor ``sqrt(n+1)`` (times ``sqrt(2)`` for m != 0),
+        so it has unit RMS over the continuous unit disk.
+
+        Actuators outside ``pupil_radius`` get the polynomial's value at their
+        true radius (it is not clipped), with a warning.
+
+        Args:
+            n_modes: Number of modes, at most the number of actuators.
+            ignore_piston: Start at j=2 instead of j=1.
+            orthonormalize: Gram-Schmidt the modes in order so they are
+                orthonormal on the actuator grid (the sampled Zernikes are not).
         """
-        n_modes = self._validate_n_modes(n_modes)
+        n_modes = self._validate_n_modes(n_modes, max_modes=self.n_actuators)
         if n_modes == 0:
             self.modes = np.zeros((self.n_actuators, 0), dtype=float)
             return self.modes
 
-        # Normalize coordinates
         x = self.positions[:, 0] / self.pupil_radius
         y = self.positions[:, 1] / self.pupil_radius
         rho = np.sqrt(x**2 + y**2)
         theta = np.arctan2(y, x)
-        
-        # Clip rho to 1.0 to avoid instability outside unit circle
-        rho = np.clip(rho, 0, 1.0)
-        
-        modes_list = []
-        
-        current_j = 1
-        while len(modes_list) < n_modes:
-            if ignore_piston and current_j == 1:
-                current_j += 1
-                continue
-                
-            n, m = self._noll_to_nm(current_j)
-            mode = self._zernike(n, m, rho, theta)
-            modes_list.append(mode)
-            current_j += 1
-            
-        self.modes = np.column_stack(modes_list)
-        return self.modes
+        outside = int(np.count_nonzero(rho > 1.0 + 1e-9))
+        if outside:
+            warnings.warn(
+                f"{outside} actuators lie outside pupil_radius={self.pupil_radius}; "
+                "their Zernike values are extrapolated.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
-    def _noll_to_nm(self, j: int) -> Tuple[int, int]:
+        first_j = 2 if ignore_piston else 1
+        modes = []
+        for j in range(first_j, first_j + n_modes):
+            n, m = self._noll_to_nm(j)
+            norm = np.sqrt(n + 1) * (np.sqrt(2.0) if m != 0 else 1.0)
+            modes.append(norm * self._zernike(n, m, rho, theta))
+
+        return self._finish(np.column_stack(modes), orthonormalize=orthonormalize)
+
+    @staticmethod
+    def _noll_to_nm(j: int) -> Tuple[int, int]:
         """
         Convert Noll index j to radial order n and azimuthal frequency m.
-        Based on Noll, J. Opt. Soc. Am. 66, 207 (1976).
+
+        Within radial order n, |m| increases (m = 0 first for even n), and each
+        |m| > 0 pair gets the cosine term (m > 0) on the even j and the sine
+        term (m < 0) on the odd j. Noll, J. Opt. Soc. Am. 66, 207 (1976).
         """
-        if j < 1:
-            raise ValueError("Noll index must be >= 1")
-            
-        # 1. Find n
-        # n is the smallest integer such that j <= (n+1)(n+2)/2
+        if isinstance(j, bool) or not isinstance(j, (int, np.integer)) or j < 1:
+            raise ValueError("Noll index must be an integer >= 1")
+        j = int(j)
+
         n = 0
-        while True:
-            if j <= (n + 1) * (n + 2) // 2:
-                break
+        while (n + 1) * (n + 2) // 2 < j:
             n += 1
-            
-        # 2. Find m
-        # j_n_start is the first index for this radial order n
-        # The number of modes up to order n-1 is n(n+1)/2
-        j_start = n * (n + 1) // 2 + 1
-        
-        # The sequence of m values for a given n in Noll ordering depends on n mod 4
-        # But simpler logic:
-        # m values go n, n-2, ..., -(n-2), -n? No, Noll is specific.
-        # Noll sorts by m magnitude, then sign.
-        
-        # Let's implement the standard logic derived from the paper or standard libs
-        
-        # Order within the block of constant n
-        k = j - j_start # 0-based index within the block
-        
-        # m values are n, n-2, ..., 1 or 0
-        # For a given n, there are n+1 modes.
-        # If n is even, m \in {0, 2, -2, 4, -4, ... n, -n} ??
-        # Actually Noll is:
-        # j=1 (n=0): m=0
-        # j=2 (n=1): m=1 (odd j -> cos -> m>0? No, Noll j=2 is m=1, j=3 is m=-1)
-        # j=3 (n=1): m=-1
-        # j=4 (n=2): m=0
-        # j=5 (n=2): m=-2 (Wait, Noll j=5 is m=-2? Or m=2?)
-        # Let's use a robust algorithm.
-        
-        # Algorithm from "Noll Indices" standard implementation
-        n = int(np.ceil((-3 + np.sqrt(9 + 8*(j-1))) / 2))
-        sub_j = j - n*(n+1)//2
-        
-        if n % 2 == 0:
-            # Even n
-            # m = 0, 2, -2, 4, -4 ...
-            if sub_j == 1:
-                m = 0
-            elif sub_j % 2 == 0:
-                m = 2 * (sub_j // 2)
-            else:
-                m = -2 * (sub_j // 2)
-        else:
-            # Odd n
-            # m = 1, -1, 3, -3 ...
-            if sub_j % 2 == 0:
-                m = - (2 * (sub_j // 2) - 1)
-            else:
-                m = (2 * (sub_j // 2) + 1)
-                
-        return n, m
+
+        # Walk the |m| values of order n in Noll order.
+        next_j = n * (n + 1) // 2 + 1
+        for abs_m in range(n % 2, n + 1, 2):
+            if abs_m == 0:
+                if j == next_j:
+                    return n, 0
+                next_j += 1
+                continue
+            if j in (next_j, next_j + 1):
+                return n, abs_m if j % 2 == 0 else -abs_m
+            next_j += 2
+        raise AssertionError("unreachable")  # pragma: no cover

@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 from scipy.special import kv, gamma
 from scipy.linalg import eigh
@@ -95,6 +97,11 @@ except ImportError:
 class KLBasisGenerator(BasisGenerator):
     """
     Generates Karhunen-Loève modes based on Von Kármán statistics.
+
+    The modes are the eigenvectors of the Von Kármán phase covariance between
+    actuators, sorted by decreasing variance (``eigenvalues``). ``outer_scale``
+    changes the modes; ``fried_parameter`` only scales the covariance, so it
+    changes ``eigenvalues`` but not the modes.
     """
     
     def __init__(self, positions: np.ndarray, fried_parameter: float = 0.16, outer_scale: float = 30.0, use_gpu: bool = False):
@@ -109,7 +116,7 @@ class KLBasisGenerator(BasisGenerator):
         self.use_gpu = use_gpu
         
         if self.use_gpu and not HAS_CUPY:
-            print("Warning: CuPy not found. Falling back to CPU.")
+            warnings.warn("CuPy not found; KLBasisGenerator falls back to the CPU.", RuntimeWarning, stacklevel=2)
             self.use_gpu = False
 
     def _von_karman_covariance(self) -> np.ndarray:
@@ -180,7 +187,22 @@ class KLBasisGenerator(BasisGenerator):
         
         return cov
 
-    def generate(self, n_modes: int, ignore_piston: bool = False, **kwargs) -> np.ndarray:
+    def generate(
+        self, n_modes: int, ignore_piston: bool = False, orthonormalize: bool = False, **kwargs
+    ) -> np.ndarray:
+        """
+        Generate KL modes (orthonormal columns, decreasing variance).
+
+        Args:
+            n_modes: Number of modes, at most the number of actuators (one
+                fewer with ``ignore_piston``).
+            ignore_piston: Diagonalize the piston-removed covariance
+                ``P C P`` (``P = I - 11^T/N``), so every mode has exactly zero
+                mean. Piston is not generally an exact KL mode, so this is not
+                the same as dropping the first mode.
+            orthonormalize: Accepted for a uniform API; KL modes are already
+                orthonormal.
+        """
         max_modes = self.n_actuators - (1 if ignore_piston else 0)
         n_modes = self._validate_n_modes(n_modes, max_modes=max_modes)
 
@@ -190,35 +212,20 @@ class KLBasisGenerator(BasisGenerator):
             return self.modes
 
         cov = self._von_karman_covariance()
-        
+        xp = cp if self.use_gpu else np
+        if ignore_piston:
+            # P C P with P = I - 11^T/N, without forming P.
+            cov = cov - cov.mean(axis=0, keepdims=True)
+            cov = cov - cov.mean(axis=1, keepdims=True)
+
+        eigenvalues, eigenvectors = cp_eigh(cov) if self.use_gpu else eigh(cov)
+        # Sort by decreasing variance. With the piston removed, piston is an
+        # eigenvector with eigenvalue ~0, so it sorts last and is never chosen.
+        sorter = xp.argsort(eigenvalues)[::-1][:n_modes]
+        eigenvalues = eigenvalues[sorter]
+        eigenvectors = eigenvectors[:, sorter]
         if self.use_gpu:
-            # Covariance is already on GPU, compute eigendecomposition
-            eigenvalues, eigenvectors = cp_eigh(cov)
-            
-            # Sort descending on GPU
-            sorter = cp.argsort(eigenvalues)[::-1]
-            sorted_eigenvalues = eigenvalues[sorter]
-            sorted_eigenvectors = eigenvectors[:, sorter]
-            
-            start_idx = 1 if ignore_piston else 0
-            end_idx = start_idx + n_modes
-            
-            # Extract modes and eigenvalues, then transfer to CPU
-            self.eigenvalues = cp.asnumpy(sorted_eigenvalues[start_idx:end_idx])
-            self.modes = cp.asnumpy(sorted_eigenvectors[:, start_idx:end_idx])
-        else:
-            # CPU path - cov is already numpy array
-            eigenvalues, eigenvectors = eigh(cov)
-            
-            # Sort descending
-            sorter = np.argsort(eigenvalues)[::-1]
-            sorted_eigenvalues = eigenvalues[sorter]
-            sorted_eigenvectors = eigenvectors[:, sorter]
-            
-            start_idx = 1 if ignore_piston else 0
-            end_idx = start_idx + n_modes
-            
-            self.eigenvalues = sorted_eigenvalues[start_idx:end_idx]
-            self.modes = sorted_eigenvectors[:, start_idx:end_idx]
-        
+            eigenvalues, eigenvectors = cp.asnumpy(eigenvalues), cp.asnumpy(eigenvectors)
+        self.eigenvalues = eigenvalues
+        self.modes = np.asarray(eigenvectors, dtype=float)
         return self.modes

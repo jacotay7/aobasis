@@ -5,16 +5,24 @@ try:
 except PackageNotFoundError:
     __version__ = "unknown"
 
-from .base import BasisGenerator
+from .base import BasisGenerator, ConcreteBasis, orthonormalize_modes
 from .kl import KLBasisGenerator
 from .zernike import ZernikeBasisGenerator
 from .fourier import FourierBasisGenerator
 from .zonal import ZonalBasisGenerator, ZonalFastBasisGenerator
 from .hadamard import HadamardBasisGenerator
-from .utils import make_circular_actuator_grid, make_concentric_actuator_grid, plot_basis_modes
+from .utils import (
+    make_circular_actuator_grid,
+    make_concentric_actuator_grid,
+    plot_basis_modes,
+    positions_from_mask,
+)
 
 __all__ = [
     "BasisGenerator",
+    "ConcreteBasis",
+    "orthonormalize_modes",
+    "positions_from_mask",
     "KLBasisGenerator",
     "ZernikeBasisGenerator",
     "FourierBasisGenerator",

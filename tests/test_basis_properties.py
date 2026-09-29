@@ -1,0 +1,185 @@
+"""Mathematical properties of the generated bases (Noll order, rank, dtype, piston)."""
+
+import warnings
+
+import numpy as np
+import pytest
+
+from aobasis import (
+    BasisGenerator,
+    ConcreteBasis,
+    FourierBasisGenerator,
+    HadamardBasisGenerator,
+    KLBasisGenerator,
+    ZernikeBasisGenerator,
+    make_circular_actuator_grid,
+    orthonormalize_modes,
+    positions_from_mask,
+)
+
+
+@pytest.fixture
+def grid():
+    return make_circular_actuator_grid(telescope_diameter=10.0, grid_size=12)
+
+
+NOLL = {
+    1: (0, 0), 2: (1, 1), 3: (1, -1), 4: (2, 0), 5: (2, -2), 6: (2, 2),
+    7: (3, -1), 8: (3, 1), 9: (3, -3), 10: (3, 3), 11: (4, 0), 12: (4, 2),
+    13: (4, -2), 14: (4, 4), 15: (4, -4), 16: (5, 1), 17: (5, -1), 18: (5, 3),
+    19: (5, -3), 20: (5, 5), 21: (5, -5), 22: (6, 0),
+}
+
+
+def test_noll_to_nm_matches_noll_table():
+    gen = ZernikeBasisGenerator(np.zeros((1, 2)), pupil_radius=1.0)
+    assert {j: gen._noll_to_nm(j) for j in NOLL} == NOLL
+    with pytest.raises(ValueError):
+        gen._noll_to_nm(0)
+
+
+def test_zernike_modes_are_noll_normalized():
+    # A fine grid approximates the continuous disk, where Noll Zernikes have unit RMS.
+    positions = make_circular_actuator_grid(2.0, 81)
+    modes = ZernikeBasisGenerator(positions, pupil_radius=1.0).generate(10, ignore_piston=True)
+    rms = np.sqrt(np.mean(modes**2, axis=0))
+    assert np.allclose(rms, 1.0, atol=0.03)
+    # j=5 is sin(2 theta): largest along the diagonal, zero on the axes.
+    x, y = positions[:, 0], positions[:, 1]
+    astig = modes[:, 3]
+    assert np.allclose(astig[(np.abs(y) < 1e-9)], 0.0, atol=1e-9)
+
+
+def test_zernike_warns_for_actuators_outside_pupil(grid):
+    with pytest.warns(RuntimeWarning, match="outside pupil_radius"):
+        modes = ZernikeBasisGenerator(grid, pupil_radius=2.0).generate(4)
+    rho = np.linalg.norm(grid, axis=1) / 2.0
+    # Defocus is extrapolated at the true radius, not clipped at rho = 1.
+    assert np.allclose(modes[:, 3], np.sqrt(3) * (2 * rho**2 - 1))
+
+
+def test_zernike_rejects_more_modes_than_actuators_and_warns_on_rank(grid):
+    gen = ZernikeBasisGenerator(grid, pupil_radius=5.0)
+    with pytest.raises(ValueError):
+        gen.generate(grid.shape[0] + 1)
+    with pytest.warns(RuntimeWarning, match="linearly dependent"):
+        gen.generate(grid.shape[0])
+
+
+def test_fourier_basis_has_full_rank_or_raises(grid):
+    n = grid.shape[0]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        modes = FourierBasisGenerator(grid, pupil_diameter=10.0).generate(n)
+    assert np.linalg.matrix_rank(modes) == n
+    assert np.allclose(modes[:, 0], 1.0)
+
+    # On an odd grid spanning the pupil, 1/D frequency steps cannot span every actuator.
+    odd = make_circular_actuator_grid(10.0, 11)
+    with pytest.raises(ValueError, match="independent Fourier modes"):
+        FourierBasisGenerator(odd, pupil_diameter=10.0).generate(odd.shape[0])
+
+
+def test_fourier_without_piston_is_independent_of_piston(grid):
+    n = grid.shape[0] - 1
+    modes = FourierBasisGenerator(grid, pupil_diameter=10.0).generate(n, ignore_piston=True)
+    with_piston = np.column_stack((np.ones(grid.shape[0]), modes))
+    assert np.linalg.matrix_rank(with_piston) == n + 1
+
+
+def test_hadamard_is_float_and_supports_ignore_piston(grid):
+    gen = HadamardBasisGenerator(grid)
+    modes = gen.generate(8)
+    assert modes.dtype == np.float64
+    assert np.all(modes[:, 0] == 1.0)
+    no_piston = gen.generate(8, ignore_piston=True)
+    assert np.array_equal(no_piston, modes[:, 1:9]) if modes.shape[1] > 8 else True
+    assert not np.all(no_piston[:, 0] == 1.0)
+    with pytest.raises(ValueError):
+        gen.generate(grid.shape[0] + 1)
+    with pytest.raises(ValueError):
+        gen.generate(grid.shape[0], ignore_piston=True)
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda p: ZernikeBasisGenerator(p, pupil_radius=5.0),
+        lambda p: FourierBasisGenerator(p, pupil_diameter=10.0),
+        lambda p: HadamardBasisGenerator(p),
+    ],
+)
+def test_orthonormalize_option(grid, factory):
+    raw = factory(grid).generate(30)
+    modes = factory(grid).generate(30, orthonormalize=True)
+    assert np.allclose(modes.T @ modes, np.eye(30), atol=1e-10)
+    # Gram-Schmidt keeps the order: mode k is in the span of raw modes 0..k.
+    for k in (0, 5, 29):
+        span = raw[:, : k + 1]
+        coeffs, *_ = np.linalg.lstsq(span, modes[:, k], rcond=None)
+        assert np.allclose(span @ coeffs, modes[:, k], atol=1e-10)
+    # First mode keeps its sign.
+    assert modes[:, 0] @ raw[:, 0] > 0
+
+
+def test_kl_ignore_piston_modes_have_zero_mean(grid):
+    gen = KLBasisGenerator(grid)
+    modes = gen.generate(grid.shape[0] - 1, ignore_piston=True)
+    assert np.allclose(modes.mean(axis=0), 0.0, atol=1e-12)
+    assert np.allclose(modes.T @ modes, np.eye(modes.shape[1]), atol=1e-10)
+    assert np.all(np.diff(gen.eigenvalues) <= 1e-9)
+
+
+def test_kl_fried_parameter_scales_eigenvalues_only(grid):
+    a = KLBasisGenerator(grid, fried_parameter=0.1)
+    b = KLBasisGenerator(grid, fried_parameter=0.2)
+    ma = a.generate(10)
+    b.generate(10)
+    assert np.allclose(a.eigenvalues / b.eigenvalues, 2 ** (5 / 3))
+    # Degenerate pairs may rotate, so check that a's modes are eigenvectors of b's covariance.
+    cov_b = b._von_karman_covariance()
+    assert np.allclose(cov_b @ ma, ma * b.eigenvalues, rtol=1e-8, atol=1e-8 * b.eigenvalues[0])
+
+
+def test_load_keeps_basis_type_and_checks_class(grid, tmp_path):
+    gen = HadamardBasisGenerator(grid)
+    gen.generate(4)
+    path = tmp_path / "basis.npz"
+    gen.save(path)
+
+    loaded = BasisGenerator.load(path)
+    assert isinstance(loaded, ConcreteBasis)
+    assert loaded.basis_type == "HadamardBasisGenerator"
+    assert HadamardBasisGenerator.load(path).basis_type == "HadamardBasisGenerator"
+    with pytest.raises(ValueError, match="HadamardBasisGenerator"):
+        KLBasisGenerator.load(path)
+
+    # Re-saving a loaded basis keeps the original type.
+    loaded.save(tmp_path / "again.npz")
+    assert BasisGenerator.load(tmp_path / "again.npz").basis_type == "HadamardBasisGenerator"
+
+
+def test_orthonormalize_modes_handles_empty():
+    assert orthonormalize_modes(np.zeros((5, 0))).shape == (5, 0)
+
+
+def test_positions_from_mask():
+    mask = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=bool)
+    positions = positions_from_mask(mask, pitch=0.5)
+    assert positions.shape == (5, 2)
+    assert np.allclose(positions[0], [0.0, -0.5])  # row 0, col 1
+    assert np.allclose(positions[2], [0.0, 0.0])
+    assert np.allclose(positions.mean(axis=0), 0.0)
+    with pytest.raises(ValueError):
+        positions_from_mask(np.ones(3, bool), pitch=1.0)
+    with pytest.raises(ValueError):
+        positions_from_mask(mask, pitch=0.0)
+
+
+def test_importing_aobasis_does_not_import_matplotlib():
+    import subprocess
+    import sys
+
+    code = "import aobasis, sys; print('matplotlib.pyplot' in sys.modules)"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "False"
