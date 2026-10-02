@@ -1,4 +1,3 @@
-import math
 import warnings
 
 import numpy as np
@@ -17,14 +16,25 @@ class ZernikeBasisGenerator(BasisGenerator):
         self.pupil_radius = pupil_radius
 
     def _zernike_radial(self, n: int, m: int, rho: np.ndarray) -> np.ndarray:
-        """Compute radial Zernike polynomial R_n^m(rho)."""
-        R = np.zeros_like(rho)
-        for k in range((n - m) // 2 + 1):
-            c = ((-1)**k * math.factorial(n - k)) / (
-                math.factorial(k) * math.factorial((n + m) // 2 - k) * math.factorial((n - m) // 2 - k)
-            )
-            R += c * rho**(n - 2 * k)
-        return R
+        """Compute radial Zernike polynomial R_n^m(rho), m >= 0.
+
+        Uses R_n^m(rho) = (-1)^k rho^m P_k^(m,0)(1 - 2 rho^2), k = (n - m) / 2,
+        with the three-term Jacobi recurrence. The explicit factorial sum
+        cancels catastrophically in float64 from n ~ 46 on.
+        """
+        rho = np.asarray(rho, dtype=float)
+        k_max = (n - m) // 2
+        a = float(m)
+        x = 1.0 - 2.0 * rho**2
+        p_prev = np.ones_like(x)
+        p = p_prev if k_max == 0 else (a + 1.0) + (a + 2.0) * (x - 1.0) / 2.0
+        for k in range(2, k_max + 1):
+            c = 2 * k + a
+            p, p_prev = (
+                (c - 1) * (c * (c - 2) * x + a * a) * p
+                - 2 * (k + a - 1) * (k - 1) * c * p_prev
+            ) / (2 * k * (k + a) * (c - 2)), p
+        return (-1.0) ** k_max * rho**m * p
 
     def _zernike(self, n: int, m: int, rho: np.ndarray, theta: np.ndarray) -> np.ndarray:
         """Compute Zernike polynomial Z_n^m(rho, theta)."""
