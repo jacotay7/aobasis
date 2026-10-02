@@ -1,207 +1,133 @@
-# AO Basis (aobasis)
+# aobasis
 
-A Python package for generating various modal basis sets for Adaptive Optics (AO) systems. This tool allows you to easily create, visualize, and save basis sets for any deformable mirror geometry.
+Modal basis sets for adaptive-optics deformable mirrors: KL, Zernike, Fourier, Hadamard, zonal and zonal-fast modes, for any actuator geometry.
 
-## Features
-
-- **Karhunen-Loève (KL) Modes**: Optimized for atmospheric turbulence (Von Kármán spectrum).
-  - Optional GPU acceleration available for large systems (requires CuPy).
-  - `DMKLBasisGenerator`: KL modes of the DM itself, from its influence functions (double diagonalization): orthonormal surfaces over the pupil, statistically independent coefficients.
-- **Zernike Polynomials**: Standard optical aberration modes with Noll normalization, in Noll, OSA/ANSI or Fringe order (`ordering=`), and annular Zernikes for a central obstruction (`obscuration=`).
-- **Fourier Modes**: Sinusoidal basis sets; aliased frequencies are skipped, so each mode is independent of the ones before it. Near full size the raw matrix is ill-conditioned; `orthonormalize=True` gives an accurate orthonormal basis.
-- **Zonal Basis**: Single actuator pokes (Identity).
-- **Zonal Fast Basis**: Distance-constrained grouped actuator pokes for faster calibration sweeps.
-- **Hadamard Basis**: +/-1 patterns for calibration: a truncated Sylvester matrix, or (`construction="smallest"`) the smallest Sylvester-doubled Paley matrix, which needs no truncation on many grids; `selection="balanced"` picks the most piston-free columns.
-- **Flexible Geometry**: Works with arbitrary actuator positions (defaulting to circular grids).
-- **Mode Removal**: `ignore_piston=True` makes every mode zero-mean, and `remove=` keeps other modes out of the basis (`"tiptilt"`, or any `(n_actuators, k)` array). Zernike, Fourier and Hadamard modes have them projected out; KL diagonalizes the covariance with them removed. `aobasis.project_out` and `aobasis.removal_basis` do the same for any matrix.
-- **Orthonormalization**: Zernike, Fourier and Hadamard modes sampled on a discrete grid are not orthogonal; `generate(..., orthonormalize=True)` Gram-Schmidts them in order (`aobasis.orthonormalize_modes` does the same for any matrix). A `RuntimeWarning` flags a rank-deficient basis.
-- **Normalization**: `generate(..., normalize="rms" | "l2" | "peak" | "pv")` scales every mode to unit size after piston removal and orthonormalization (`aobasis.normalize_modes` does the same for any matrix). KL `eigenvalues` follow the normalization.
-- **Using a basis**: `fit_coefficients` / `command_to_mode_matrix` give least-squares modal coefficients (C2M), and `basis_report(modes)` or `generator.report()` summarizes rank, conditioning, orthogonality and piston content.
-- **Visualization**: Built-in plotting tools for quick inspection (`pip install aobasis[plot]` for matplotlib).
-- **Serialization**: `save`/`load` use `.npz` files holding the modes, positions, generator parameters, `generate()` options, KL eigenvalues and aobasis version (`load` returns a `ConcreteBasis` with all of them). `save_fits`/`load_fits` do the same in FITS (`pip install aobasis[fits]`).
-- **Influence-function fitting**: `fit_to_influence_functions` turns modes sampled on the pupil into least-squares DM commands, with `gaussian_influence_functions` and `make_pupil_points` to build the inputs.
-- **Geometry helpers**: `make_circular_actuator_grid` (by `grid_size` or `pitch`, actuators on the rim or in cell centres), `make_hexagonal_actuator_grid`, `make_concentric_actuator_grid`, all with `obscuration=` and spider arms (`n_spiders`, `spider_width`, `spider_angle`), and `positions_from_mask` for a boolean actuator map.
+Every generator takes your actuator positions and returns a **modal-to-command matrix** (M2C), an `(n_actuators, n_modes)` NumPy array whose column `k` is the DM command for mode `k`. It's ready for a reconstructor, a calibration sequence or a real-time controller such as [pyRTC](https://github.com/jacotay7/pyRTC).
 
 ## Installation
 
-### Prerequisites
-- Python 3.8 or higher
-- (Optional) For GPU-accelerated KL generation: CUDA-compatible GPU and CuPy
+```bash
+pip install aobasis                 # numpy + scipy only
+pip install "aobasis[plot]"         # + matplotlib, for .plot()
+pip install "aobasis[fits]"         # + astropy, for save_fits / load_fits
+pip install "aobasis[tutorials]"    # + matplotlib, astropy and Jupyter, for the tutorials
+```
 
-### Install from Source
-Clone the repository and install using pip:
+aobasis is pure Python (3.8–3.14) and is tested on Linux, x86-64 and aarch64.
+
+**GPU (optional).** `KLBasisGenerator(..., use_gpu=True)` builds and diagonalizes the covariance with [CuPy](https://docs.cupy.dev/en/stable/install.html). Install the CuPy wheel for your CUDA version, e.g. `pip install cupy-cuda12x`, or `conda install -c conda-forge cupy`. Without CuPy it falls back to the CPU with a warning, and the modes are the same either way.
+
+## Quick start
+
+```python
+import numpy as np
+import aobasis
+
+# 1. Actuator positions: (N, 2) in metres, centred, in your DM's actuator order
+positions = aobasis.make_circular_actuator_grid(telescope_diameter=10.0, grid_size=20)
+
+# 2. A generator and its physical parameters
+kl = aobasis.KLBasisGenerator(positions, fried_parameter=0.16, outer_scale=30.0)
+
+# 3. The M2C: (276, 50), piston-free
+m2c = kl.generate(n_modes=50, ignore_piston=True)
+
+# 4. Use, inspect, keep
+coefficients = np.zeros(50); coefficients[3] = 1.0  # some of mode 3
+commands = m2c @ coefficients                       # put modal coefficients on the DM
+c2m = aobasis.command_to_mode_matrix(m2c)           # and back
+kl.plot(count=6)                                    # needs aobasis[plot]
+kl.save("kl_m2c.npz")                               # modes + parameters + options + eigenvalues
+```
+
+## What's in it
+
+**Bases**
+
+| Generator | Modes | Typical use |
+|---|---|---|
+| `KLBasisGenerator` | Karhunen-Loève modes of Von Kármán (or Kolmogorov, `outer_scale=np.inf`) turbulence at the actuators, with `eigenvalues` | closed-loop control; turbulence statistics and priors |
+| `DMKLBasisGenerator` | KL modes of the DM surface from its influence functions (double diagonalization) | control with a real DM |
+| `ZernikeBasisGenerator` | Noll-normalized Zernikes in Noll, OSA/ANSI or Fringe order; annular Zernikes with `obscuration=` | aberration commands, optical testing, NCPA |
+| `FourierBasisGenerator` | sines and cosines, aliased frequencies skipped | frequency response, spatial filtering |
+| `HadamardBasisGenerator` | ±1 patterns, Sylvester or Paley matrices (`construction="smallest"`), `selection="balanced"` | low-noise interaction-matrix calibration |
+| `ZonalBasisGenerator` | single-actuator pokes | simplest calibration |
+| `ZonalFastBasisGenerator` | groups of pokes at least `min_distance` apart (optimal lattice colourings) | calibration in a few frames |
+
+**Shaping a basis.** These options are the same on every generator:
+- `ignore_piston=True` makes every mode exactly zero-mean;
+- `remove="tiptilt"` (or any `(n_actuators, k)` array, e.g. waffle) keeps other modes out;
+- `orthonormalize=True` Gram-Schmidts the modes in order;
+- `normalize="rms" | "l2" | "peak" | "pv"` sets the scale.
+
+Unknown options raise `TypeError`.
+
+**Geometry.**
+- `make_circular_actuator_grid` builds a square grid by `grid_size` or `pitch`, with actuators on the rim or in cell centres.
+- `make_hexagonal_actuator_grid` and `make_concentric_actuator_grid` cover other layouts.
+- All three take a central obstruction and spider arms.
+- `positions_from_mask` reads a boolean DM map, and any `(N, 2)` array works too.
+
+**Influence functions.** `fit_to_influence_functions` gives least-squares commands whose DM surface matches modes sampled on the pupil. `gaussian_influence_functions` and `make_pupil_points` build the inputs.
+
+**Using and keeping a basis.**
+- `command_to_mode_matrix` and `fit_coefficients` give modal coefficients.
+- `basis_report` (or `generator.report()`) summarizes rank, conditioning, orthogonality and piston content.
+- `save`/`load` (`.npz`) and `save_fits`/`load_fits` store the modes together with the generator's parameters, the `generate()` options, KL eigenvalues and the aobasis version.
+
+**Reproducible.** KL modes follow a fixed sign and degenerate-rotation convention: tip along +x, tilt along +y. The same geometry gives the same modes on every machine, CPU or GPU.
+
+## Tutorials and examples
+
+[`tutorials/`](tutorials) holds eight Jupyter walkthroughs; see [`tutorials/README.md`](tutorials/README.md) for a guide.
+
+| | Notebooks |
+|---|---|
+| **Getting started** | [01 · Quickstart](tutorials/01_quickstart.ipynb), [02 · A tour of the bases](tutorials/02_tour_of_bases.ipynb) |
+| **Everyday use** | [03 · Shaping a basis](tutorials/03_shaping_a_basis.ipynb), [04 · Actuator geometry](tutorials/04_actuator_geometry.ipynb) |
+| **In depth** | [05 · KL and turbulence](tutorials/05_kl_and_turbulence.ipynb), [06 · Influence functions and DM KL](tutorials/06_influence_functions.ipynb), [07 · Calibration patterns](tutorials/07_calibration.ipynb), [08 · Saving and sharing](tutorials/08_saving_and_sharing.ipynb) |
+
+[`examples/`](examples) holds ready-to-run scripts (each has `--help`):
+
+```bash
+python examples/make_m2c.py kl --grid-size 20 --n-modes 100 --remove tiptilt -o kl.fits --plot kl.png
+python examples/dm_kl.py --n-modes 80 -o dmkl.fits
+python examples/calibration.py
+```
+
+## Performance
+
+`python examples/benchmark.py --grid-sizes 16 32 64 --n-modes 100 --gpu --markdown`. Each entry is the best of 3 runs of `generate(100)` (zonal fast: its full pattern set) on a square grid clipped by a 10 m pupil.
+
+Host: an 80-core Arm Neoverse-N1 server, using 4 cores (`OPENBLAS_NUM_THREADS=4`), and an NVIDIA RTX A400.
+
+| Basis (100 modes) | 16×16 (172 acts) | 32×32 (740 acts) | 64×64 (3096 acts) |
+|---|---|---|---|
+| **KL (CPU)** | 0.023 s | 0.158 s | 1.99 s |
+| **KL (GPU)** | 0.026 s | 0.161 s | 4.41 s |
+| **Zernike** | 0.005 s | 0.011 s | 0.033 s |
+| **Fourier** | 0.006 s | 0.024 s | 0.081 s |
+| **Hadamard** | 0.001 s | 0.021 s | 0.142 s |
+| **Zonal** | <0.001 s | <0.001 s | 0.002 s |
+| **Zonal fast** (3-pitch spacing) | 0.005 s | 0.023 s | 0.120 s |
+
+Full bases (`--n-modes all`) on 3096 actuators take 6.3 s for KL, 4.3 s for Zernike, 7.1 s for Fourier and 3.0 s for Hadamard. That includes the rank check.
+
+Some notes on these numbers:
+- KL costs O(N³). For a few modes the CPU uses a partial eigensolver, which is why 100 modes are faster than the full basis.
+- The covariance is evaluated once per distinct actuator separation.
+- The GPU path only pays off on GPUs with strong float64 throughput. The RTX A400 used here has little, and on such cards the CPU is as fast or faster.
+
+## Development and testing
 
 ```bash
 git clone https://github.com/jacotay7/aobasis.git
 cd aobasis
-pip install .
-```
-
-For development (editable install with test dependencies):
-```bash
 pip install -e ".[dev]"
-```
-
-### GPU Acceleration (Optional)
-To enable GPU acceleration for KL basis generation, you need to install CuPy and ensure you have a CUDA-compatible GPU.
-
-#### Requirements
-- NVIDIA GPU with CUDA support
-- CUDA Toolkit (version 11.x or 12.x)
-
-#### Installation via Conda (Recommended)
-This method automatically handles CUDA dependencies:
-
-```bash
-# Create a new conda environment (optional but recommended)
-conda create -n aobasis python=3.12
-conda activate aobasis
-
-# Install CuPy from conda-forge (auto-detects CUDA version)
-conda install -c conda-forge cupy
-
-# Install CUDA toolkit if not already present
-conda install -c nvidia cuda-toolkit
-```
-
-#### Installation via Pip
-If you prefer pip and already have CUDA installed on your system:
-
-```bash
-# For CUDA 12.x
-pip install cupy-cuda12x
-
-# For CUDA 11.x
-pip install cupy-cuda11x
-```
-
-#### Verify Installation
-Test that CuPy is working correctly:
-
-```python
-import cupy as cp
-print(f"CuPy version: {cp.__version__}")
-print(f"CUDA available: {cp.cuda.is_available()}")
-
-# Simple test
-a = cp.array([1, 2, 3])
-b = cp.array([4, 5, 6])
-print(f"Sum: {cp.asnumpy(a + b)}")  # Should print [5, 7, 9]
-```
-
-If you encounter any issues, consult the [CuPy installation guide](https://docs.cupy.dev/en/stable/install.html).
-
-## Quick Start
-
-Here is a simple example of generating and plotting KL modes for a 10-meter telescope:
-
-```python
-from aobasis import KLBasisGenerator, make_circular_actuator_grid
-
-# 1. Define the actuator geometry
-positions = make_circular_actuator_grid(telescope_diameter=10.0, grid_size=20)
-
-# 2. Initialize the generator (use_gpu=True for GPU acceleration if available)
-kl_gen = KLBasisGenerator(positions, fried_parameter=0.16, outer_scale=30.0, use_gpu=False)
-
-# 3. Generate modes (excluding piston)
-modes = kl_gen.generate(n_modes=50, ignore_piston=True)
-
-# 4. Plot the first 6 modes
-kl_gen.plot(count=6, title_prefix="KL Mode")
-
-# 5. Save to disk
-kl_gen.save("my_kl_basis.npz")
-```
-
-## Zonal Fast Basis
-
-`ZonalFastBasisGenerator` groups actuators into binary poke patterns such that no two actuators in the same mode are closer than a user-defined distance `D`. This is useful when you want a compact calibration basis that reduces the number of measurements compared with pure zonal pokes. It colours the actuators' conflict graph greedily (DSATUR) and, when the actuators lie on a lattice (square, hexagonal, ...), also with the best sublattice colouring, keeping whichever needs fewer modes. `generate(signs="random")` gives each poke a random sign.
-
-```python
-import numpy as np
-
-from aobasis import ZonalFastBasisGenerator, make_circular_actuator_grid, make_concentric_actuator_grid
-
-# Example 1: grid-like actuator positions clipped by a circular pupil.
-positions = make_circular_actuator_grid(telescope_diameter=10.0, grid_size=20)
-grid_gen = ZonalFastBasisGenerator(positions, min_distance=0.8)
-grid_modes = grid_gen.generate()
-print("Grid layout:", grid_modes.shape)
-grid_gen.plot(count=min(12, grid_modes.shape[1]), title_prefix="Zonal Fast Grid")
-
-# Example 2: non-grid actuator positions.
-exotic_positions = make_concentric_actuator_grid(telescope_diameter=10.0, n_rings=5)
-exotic_positions = exotic_positions + 0.03 * np.sin(exotic_positions)
-exotic_gen = ZonalFastBasisGenerator(exotic_positions, min_distance=1.0)
-exotic_modes = exotic_gen.generate()
-print("Exotic layout:", exotic_modes.shape)
-exotic_gen.plot(count=min(12, exotic_modes.shape[1]), title_prefix="Zonal Fast Exotic")
-```
-
-The returned matrix still has the standard `(n_actuators, n_modes)` layout, but each column is now a sparse binary pattern rather than a single-actuator poke. Every actuator appears in exactly one column of the full basis.
-
-## Fitting Modes onto Influence Functions
-
-Sampling a mode at the actuator positions treats the DM as a set of point values. To get commands whose DM *surface* matches a mode, evaluate the mode on pupil points (every generator accepts arbitrary points) and fit it onto the DM influence functions by least squares:
-
-```python
-from aobasis import (
-    ZernikeBasisGenerator, fit_to_influence_functions, gaussian_influence_functions,
-    make_circular_actuator_grid, make_pupil_points,
-)
-
-points = make_pupil_points(diameter=10.0, n_pixels=64)          # pupil pixel centres
-actuators = make_circular_actuator_grid(11.0, 22)               # one ring beyond the pupil
-influence = gaussian_influence_functions(actuators, points)     # or your measured IFs, (n_points, n_actuators)
-pupil_modes = ZernikeBasisGenerator(points, pupil_radius=5.0).generate(50, ignore_piston=True)
-commands, residual = fit_to_influence_functions(
-    pupil_modes, influence, orthonormalize=True, return_residual=True
-)
-```
-
-`commands` is the `(n_actuators, n_modes)` modal-to-command matrix, `residual` each mode's relative fitting error, and `orthonormalize=True` makes the DM surfaces orthonormal over the pupil. `rcond` and `regularization` control unseen or badly seen actuators.
-
-## Performance
-
-Generation times for 100 modes benchmarked on the following system:
-- **CPU**: AMD Ryzen 9 9950X3D (16-core, 32-thread)
-- **GPU**: NVIDIA GeForce RTX 5090 (32 GB)
-- **OS**: Linux (Ubuntu)
-
-| Basis | 16x16 Grid (~170 acts) | 32x32 Grid (~740 acts) | 64x64 Grid (~3100 acts) |
-|-------|------------------------|------------------------|-------------------------|
-| **KL (CPU)** | 0.010s | 0.170s | 3.008s |
-| **KL (GPU)** | 0.005s | 0.019s | 0.202s |
-| **Zernike** | 0.001s | 0.002s | 0.005s |
-| **Fourier** | <0.001s | 0.001s | 0.003s |
-| **Zonal** | <0.001s | <0.001s | 0.003s |
-| **Zonal Fast** | depends on spacing threshold | depends on spacing threshold | depends on spacing threshold |
-| **Hadamard** | <0.001s | 0.001s | 0.031s |
-
-*Note: KL basis generation is computationally intensive ($O(N^3)$) due to the dense covariance matrix diagonalization. GPU acceleration provides significant speedup (8-15x) for larger grids.*
-
-## Tutorials and examples
-
-- [`tutorials/`](tutorials) holds eight Jupyter walkthroughs, from a five-minute quickstart to KL statistics, influence-function fitting and interaction-matrix calibration. Start with [`tutorials/README.md`](tutorials/README.md).
-- [`examples/`](examples) holds ready-to-run scripts, e.g. `python examples/make_m2c.py kl --grid-size 20 --n-modes 100 -o kl.fits`.
-
-```bash
-pip install "aobasis[tutorials]"
-jupyter notebook tutorials/
-```
-
-## Development & Testing
-
-This project uses `pytest` for testing. To run the test suite:
-
-```bash
-# Install dev dependencies
-pip install -e ".[dev]"
-
-# Run tests
 pytest
 ```
+
+CI runs the test suite on Python 3.8–3.14, on aarch64 and without matplotlib, runs every example script, and executes every tutorial notebook.
 
 CI cannot run the GPU tests: they need CuPy and a CUDA device, and skip without them. Run them locally before changing GPU code:
 
@@ -212,25 +138,12 @@ pytest -k gpu -rs   # -rs shows a skip reason if no device is found
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1.  Fork the repository.
-2.  Create your feature branch (`git checkout -b feature/AmazingFeature`).
-3.  Commit your changes (`git commit -m 'Add some AmazingFeature'`).
-4.  Push to the branch (`git push origin feature/AmazingFeature`).
-5.  Open a Pull Request.
-
-## Issues
-
-If you encounter any bugs or have feature requests, please file an issue on the [GitHub Issues](https://github.com/jacotay7/aobasis/issues) page.
+Contributions are welcome. Open an [issue](https://github.com/jacotay7/aobasis/issues) to report a bug or propose a feature, or send a pull request with a test for the change and an entry in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Contact
 
-For questions or support, please contact:
-
-**User Name**  
-Email: jacobataylor7@gmail.com
+Jacob Taylor, jacobataylor7@gmail.com
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT; see [LICENSE](LICENSE).
