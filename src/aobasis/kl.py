@@ -5,20 +5,15 @@ from scipy.special import kv, gamma
 from scipy.linalg import eigh
 from .base import BasisGenerator
 
-try:
-    import cupy as cp
-    from cupy.linalg import eigh as cp_eigh
-    HAS_CUPY = True
-    
-    # Pre-computed gamma values for Bessel function
-    GAMMA_1_6 = 5.56631600178
-    GAMMA_11_6 = 0.94065585824
-    
-    # Custom GPU kernel for K_{5/6} Bessel function (optimized for float64)
-    _kv56_kernel_float64 = cp.ElementwiseKernel(
-        'float64 z',
-        'float64 K',
-        '''
+# CuPy is optional and slow to import, so it is loaded on first GPU use.
+_CUPY_BACKEND = None  # (cupy module, K_{5/6} kernel) once loaded, False if unavailable
+
+# Gamma values for the K_{5/6} series
+GAMMA_1_6 = 5.56631600178
+GAMMA_11_6 = 0.94065585824
+
+# K_{5/6} Bessel function, float64
+_KV56_KERNEL_SOURCE = '''
         double v = 5.0 / 6.0;
         double z_abs = fabs(z);
         if (z_abs < 2.0) {
@@ -81,18 +76,31 @@ try:
             double exp_term = exp(-z);
             K = sqrt_term * exp_term * sum_terms;
         }
-        ''',
-        name='kv56_kernel_float64',
-        preamble=f'''
-        const double gamma_1_6 = {GAMMA_1_6};
-        const double gamma_11_6 = {GAMMA_11_6};
         '''
-    )
-    
-except ImportError:
-    cp = None
-    cp_eigh = None
-    HAS_CUPY = False
+
+
+def _load_cupy():
+    """Return ``(cupy, kv56_kernel)``, or ``None`` if CuPy is not installed."""
+    global _CUPY_BACKEND
+    if _CUPY_BACKEND is None:
+        try:
+            import cupy
+        except ImportError:
+            _CUPY_BACKEND = False
+        else:
+            kernel = cupy.ElementwiseKernel(
+                'float64 z',
+                'float64 K',
+                _KV56_KERNEL_SOURCE,
+                name='kv56_kernel_float64',
+                preamble=f'''
+                const double gamma_1_6 = {GAMMA_1_6};
+                const double gamma_11_6 = {GAMMA_11_6};
+                ''',
+            )
+            _CUPY_BACKEND = (cupy, kernel)
+    return _CUPY_BACKEND or None
+
 
 class KLBasisGenerator(BasisGenerator):
     """
@@ -115,7 +123,7 @@ class KLBasisGenerator(BasisGenerator):
         self.eigenvalues = None
         self.use_gpu = use_gpu
         
-        if self.use_gpu and not HAS_CUPY:
+        if self.use_gpu and _load_cupy() is None:
             warnings.warn("CuPy not found; KLBasisGenerator falls back to the CPU.", RuntimeWarning, stacklevel=2)
             self.use_gpu = False
 
@@ -153,6 +161,7 @@ class KLBasisGenerator(BasisGenerator):
     
     def _von_karman_covariance_gpu(self):
         """Compute the Von Karman phase covariance matrix on GPU."""
+        cp, kv56 = _load_cupy()
         # Transfer positions to GPU
         positions_gpu = cp.asarray(self.positions, dtype=cp.float64)
         
@@ -176,7 +185,7 @@ class KLBasisGenerator(BasisGenerator):
         
         # Use custom GPU kernel for Bessel function K_{5/6}
         kv_values = cp.zeros_like(u, dtype=cp.float64)
-        _kv56_kernel_float64(u, kv_values)
+        kv56(u, kv_values)
         
         # Compute covariance matrix
         cov = sigma2 * norm_factor * (u**nu) * kv_values
@@ -212,13 +221,14 @@ class KLBasisGenerator(BasisGenerator):
             return self.modes
 
         cov = self._von_karman_covariance()
+        cp = _load_cupy()[0] if self.use_gpu else None
         xp = cp if self.use_gpu else np
         if ignore_piston:
             # P C P with P = I - 11^T/N, without forming P.
             cov = cov - cov.mean(axis=0, keepdims=True)
             cov = cov - cov.mean(axis=1, keepdims=True)
 
-        eigenvalues, eigenvectors = cp_eigh(cov) if self.use_gpu else eigh(cov)
+        eigenvalues, eigenvectors = cp.linalg.eigh(cov) if self.use_gpu else eigh(cov)
         # Sort by decreasing variance. With the piston removed, piston is an
         # eigenvector with eigenvalue ~0, so it sorts last and is never chosen.
         sorter = xp.argsort(eigenvalues)[::-1][:n_modes]

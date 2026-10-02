@@ -86,22 +86,15 @@ def test_kl_with_different_parameters(small_grid):
     # Different outer scales should give different eigenvalues
     assert not np.allclose(gen3.eigenvalues, gen4.eigenvalues)
 
-def test_kl_gpu_fallback_warning(small_grid):
-    """Test that GPU fallback warning is shown when CuPy is not available."""
-    # Temporarily make HAS_CUPY False by creating generator with use_gpu=True
-    # but mocking the import
+def test_kl_gpu_fallback_warning(small_grid, monkeypatch):
+    """use_gpu=True without CuPy warns and falls back to the CPU."""
     import aobasis.kl as kl_module
-    original_has_cupy = kl_module.HAS_CUPY
-    
-    try:
-        # Force HAS_CUPY to False
-        kl_module.HAS_CUPY = False
-        with pytest.warns(RuntimeWarning, match="CuPy not found"):
-            gen = KLBasisGenerator(small_grid, use_gpu=True)
-        assert gen.use_gpu is False
-    finally:
-        # Restore original value
-        kl_module.HAS_CUPY = original_has_cupy
+
+    monkeypatch.setattr(kl_module, "_load_cupy", lambda: None)
+    with pytest.warns(RuntimeWarning, match="CuPy not found"):
+        gen = KLBasisGenerator(small_grid, use_gpu=True)
+    assert gen.use_gpu is False
+
 
 def test_kl_gpu_path_when_available(small_grid, gpu):
     """GPU and CPU KL agree (runs only with CuPy and a CUDA device)."""
