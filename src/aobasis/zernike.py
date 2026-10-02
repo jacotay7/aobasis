@@ -8,6 +8,8 @@ class ZernikeBasisGenerator(BasisGenerator):
     """
     Generates Zernike polynomials on the actuator grid.
     """
+
+    _PARAMETERS = ("pupil_radius",)
     
     def __init__(self, positions: np.ndarray, pupil_radius: float):
         super().__init__(positions)
@@ -81,6 +83,13 @@ class ZernikeBasisGenerator(BasisGenerator):
                 :func:`aobasis.normalize_modes`). ``None`` keeps the
                 generator's own scale.
         """
+        self._record_options(
+            n_modes=n_modes,
+            ignore_piston=ignore_piston,
+            orthonormalize=orthonormalize,
+            remove=remove,
+            normalize=normalize,
+        )
         _check_normalize(normalize)
         removed = self._removed_subspace(remove, ignore_piston)
         n_modes = self._validate_n_modes(n_modes, max_modes=self.n_actuators - removed.shape[1])

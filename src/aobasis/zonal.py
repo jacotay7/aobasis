@@ -25,6 +25,7 @@ class ZonalBasisGenerator(BasisGenerator):
         Raises:
             ValueError: If ``n_modes`` exceeds the number of actuators.
         """
+        self._record_options(n_modes=n_modes, normalize=normalize)
         n_modes = self._validate_n_modes(n_modes, max_modes=self.n_actuators)
         self.modes = normalize_modes(np.eye(self.n_actuators)[:, :n_modes], normalize)
         return self.modes
@@ -181,6 +182,8 @@ class ZonalFastBasisGenerator(BasisGenerator):
     compact coloring of the actuator conflict graph.
     """
 
+    _PARAMETERS = ("min_distance",)
+
     def __init__(self, positions: np.ndarray, min_distance: float):
         super().__init__(positions)
         if not np.isscalar(min_distance) or not np.isfinite(min_distance) or min_distance < 0:
@@ -201,6 +204,7 @@ class ZonalFastBasisGenerator(BasisGenerator):
         Returns:
             ``(n_actuators, n_modes)`` matrix of binary grouped poke patterns.
         """
+        self._record_options(n_modes=n_modes, normalize=normalize)
         full_basis = compute_zonal_fast_basis(self.positions, self.min_distance)
         self.full_modes = full_basis
 
