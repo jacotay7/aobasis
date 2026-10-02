@@ -17,6 +17,7 @@
 ### Added
 
 - **`remove=` on Zernike, Fourier, Hadamard and KL `generate()` (#27)** keeps given modes out of the basis: names (`"piston"`, `"tip"`, `"tilt"`, `"tiptilt"`), `(n_actuators, k)` arrays, or a list of them. Zernike and Hadamard skip candidates that lie inside the removed modes (tip and tilt for `"tiptilt"`), Fourier picks frequencies independent of them, and KL diagonalizes `P C P` with `P = I - U Uᵀ`. New helpers `aobasis.project_out(modes, subspace)` and `aobasis.removal_basis(positions, remove)`.
+- **`normalize=` on every generator (#26)**: `"rms"`, `"l2"`, `"peak"` or `"pv"`, applied after piston removal and orthonormalization, and the helper `aobasis.normalize_modes`. KL `eigenvalues` are rescaled to stay the variance of each returned mode's coefficient.
 
 ### Changed
 

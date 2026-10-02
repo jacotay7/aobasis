@@ -1,6 +1,7 @@
 import numpy as np
+from typing import Optional
 from scipy.linalg import hadamard
-from .base import BasisGenerator, RemoveSpec
+from .base import BasisGenerator, RemoveSpec, _check_normalize
 
 class HadamardBasisGenerator(BasisGenerator):
     """
@@ -14,6 +15,7 @@ class HadamardBasisGenerator(BasisGenerator):
         ignore_piston: bool = False,
         orthonormalize: bool = False,
         remove: RemoveSpec = None,
+        normalize: Optional[str] = None,
     ) -> np.ndarray:
         """
         Generate Hadamard modes (float entries of +1/-1).
@@ -34,7 +36,12 @@ class HadamardBasisGenerator(BasisGenerator):
                 orthonormal on the actuator grid.
             remove: Further modes to project out (see
                 :func:`aobasis.removal_basis`).
+            normalize: Scale each mode to unit ``"rms"``, ``"l2"``,
+                ``"peak"`` or ``"pv"`` after everything else (see
+                :func:`aobasis.normalize_modes`). ``None`` keeps the
+                generator's own scale.
         """
+        _check_normalize(normalize)
         removed = self._removed_subspace(remove, ignore_piston)
         n_modes = self._validate_n_modes(n_modes, max_modes=self.n_actuators - removed.shape[1])
         if n_modes == 0:
@@ -49,4 +56,4 @@ class HadamardBasisGenerator(BasisGenerator):
         modes = self._take_outside(
             lambda start, count: H[:, start : start + count], n_modes, removed, n_available=size
         )
-        return self._finish(modes, orthonormalize=orthonormalize, removed=removed)
+        return self._finish(modes, orthonormalize=orthonormalize, removed=removed, normalize=normalize)
