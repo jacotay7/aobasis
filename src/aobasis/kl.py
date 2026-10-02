@@ -108,6 +108,65 @@ def _load_cupy():
     return _CUPY_BACKEND or None
 
 
+# Eigenvalues closer than this (relative) are treated as one degenerate cluster.
+_DEGENERATE_RTOL = 1e-8
+
+
+def _reference_vectors(positions: np.ndarray, count: int) -> np.ndarray:
+    """``count`` fixed pseudo-random functions of the actuator geometry.
+
+    They depend on positions (centred and scaled to unit RMS radius), not on
+    actuator order, so permuting actuators permutes the result.
+    """
+    centred = positions - positions.mean(axis=0)
+    scale = np.sqrt(np.mean(np.sum(centred**2, axis=1)))
+    x, y = (centred / (scale if scale > 0 else 1.0)).T
+    columns = []
+    for k in range(count):
+        phase = np.sin((12.9898 + 1.618 * k) * x + (78.233 + 2.718 * k) * y + 0.5 + 0.7 * k)
+        columns.append(np.mod(phase * 43758.5453, 1.0) - 0.5)
+    return np.column_stack(columns)
+
+
+def _cluster_end(eigenvalues: np.ndarray, start: int) -> int:
+    """End (exclusive) of the cluster of eigenvalues equal to ``eigenvalues[start]``."""
+    stop = start + 1
+    while stop < len(eigenvalues) and abs(eigenvalues[stop] - eigenvalues[start]) <= _DEGENERATE_RTOL * abs(
+        eigenvalues[start]
+    ):
+        stop += 1
+    return stop
+
+
+def _canonical_eigenvectors(
+    eigenvalues: np.ndarray, vectors: np.ndarray, positions: np.ndarray, n_keep: int
+) -> np.ndarray:
+    """First ``n_keep`` eigenvectors, with fixed signs and rotations.
+
+    ``eigenvalues`` are sorted in decreasing order and ``vectors`` holds at
+    least every eigenvector of the clusters that the first ``n_keep`` touch,
+    so a cluster cut by ``n_keep`` is fixed before it is truncated.
+
+    Within a cluster of (near-)equal eigenvalues spanning ``V``, the modes
+    become the in-order orthonormalization of ``V V^T R`` for fixed reference
+    vectors ``R``, each with a positive projection on its reference. That
+    depends only on the eigenspace, so CPU, GPU and different LAPACKs give
+    the same modes. A cluster of one is just a sign choice.
+    """
+    vectors = np.array(vectors, dtype=float, copy=True)
+    start = 0
+    while start < n_keep:
+        stop = min(_cluster_end(eigenvalues, start), vectors.shape[1])
+        block = vectors[:, start:stop]
+        refs = _reference_vectors(positions, stop - start)
+        q, r = np.linalg.qr(block @ (block.T @ refs))
+        signs = np.sign(np.diag(r))
+        signs[signs == 0] = 1.0
+        vectors[:, start:stop] = q * signs
+        start = stop
+    return vectors[:, :n_keep]
+
+
 class KLBasisGenerator(BasisGenerator):
     """
     Generates Karhunen-Loève modes based on Von Kármán statistics.
@@ -212,6 +271,14 @@ class KLBasisGenerator(BasisGenerator):
         """
         Generate KL modes (orthonormal columns, decreasing variance).
 
+        Eigenvectors are only defined up to sign, and up to rotation where
+        eigenvalues repeat (common on symmetric pupils). The modes follow a
+        fixed convention, so the same geometry gives the same modes on CPU and
+        GPU and across LAPACK builds: within each group of equal eigenvalues
+        (relative spread <= 1e-8) they are the in-order orthonormalization of
+        the projections of fixed pseudo-random functions of the actuator
+        positions, each with a positive projection on its function.
+
         Args:
             n_modes: Number of modes, at most the number of actuators minus
                 the number of removed modes.
@@ -248,11 +315,15 @@ class KLBasisGenerator(BasisGenerator):
         eigenvalues, eigenvectors = cp.linalg.eigh(cov) if self.use_gpu else eigh(cov)
         # Sort by decreasing variance. The removed modes are eigenvectors of
         # P C P with eigenvalue ~0, so they sort last and are never chosen.
-        sorter = xp.argsort(eigenvalues)[::-1][:n_modes]
+        sorter = xp.argsort(eigenvalues)[::-1]
         eigenvalues = eigenvalues[sorter]
-        eigenvectors = eigenvectors[:, sorter]
         if self.use_gpu:
-            eigenvalues, eigenvectors = cp.asnumpy(eigenvalues), cp.asnumpy(eigenvectors)
-        self.eigenvalues = eigenvalues
-        self.modes = np.asarray(eigenvectors, dtype=float)
+            eigenvalues = cp.asnumpy(eigenvalues)
+        # Keep the whole degenerate cluster that mode n_modes - 1 belongs to.
+        n_vectors = _cluster_end(eigenvalues, n_modes - 1)
+        eigenvectors = eigenvectors[:, sorter[:n_vectors]]
+        if self.use_gpu:
+            eigenvectors = cp.asnumpy(eigenvectors)
+        self.eigenvalues = eigenvalues[:n_modes]
+        self.modes = _canonical_eigenvectors(eigenvalues, eigenvectors, self.positions, n_modes)
         return self.modes
