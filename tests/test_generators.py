@@ -104,7 +104,30 @@ def test_kl_gpu_path_when_available(small_grid, gpu):
     modes_cpu = gen_cpu.generate(n_modes=5)
 
     assert modes_gpu.shape == modes_cpu.shape
-    assert np.allclose(gen_gpu.eigenvalues, gen_cpu.eigenvalues, rtol=1e-3)
+    assert np.allclose(gen_gpu.eigenvalues, gen_cpu.eigenvalues, rtol=1e-9)
+
+def test_gpu_kv56_kernel_matches_scipy(gpu):
+    from scipy.special import kv
+
+    from aobasis.kl import _load_cupy
+
+    cp, kv56 = _load_cupy()
+    z = np.concatenate([np.geomspace(1e-8, 2.0, 300), np.linspace(2.0, 60.0, 300)])
+    out = cp.zeros(z.size)
+    kv56(cp.asarray(z), out)
+    assert np.allclose(cp.asnumpy(out), kv(5.0 / 6.0, z), rtol=1e-12, atol=0)
+
+
+@pytest.mark.parametrize("outer_scale", [30.0, 5.0])  # 5 m puts most pairs at 2*pi*r/L0 > 2
+def test_gpu_covariance_matches_cpu(gpu, outer_scale):
+    positions = make_circular_actuator_grid(telescope_diameter=10.0, grid_size=16)
+    from aobasis.kl import _load_cupy
+
+    gen = KLBasisGenerator(positions, outer_scale=outer_scale, use_gpu=True)
+    cov_gpu = _load_cupy()[0].asnumpy(gen._von_karman_covariance_gpu())
+    cov_cpu = gen._von_karman_covariance_cpu()
+    assert np.allclose(cov_gpu, cov_cpu, rtol=1e-12, atol=0)
+
 
 def test_zernike_generation(grid):
     gen = ZernikeBasisGenerator(grid, pupil_radius=5.0)

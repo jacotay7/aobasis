@@ -6,6 +6,7 @@
 
 - **Zernike precision at high order (#13).** The radial polynomial is evaluated with the Jacobi three-term recurrence instead of the explicit factorial sum, which cancelled catastrophically from radial order ~46 (Noll j ≈ 1100) on. A full Zernike basis on a 64×64 grid had entries up to 3e13; modes are now accurate to ~1e-13 beyond n = 100.
 - **CuPy is imported lazily (#19).** `import aobasis` no longer imports CuPy or builds the GPU kernel; both happen the first time `KLBasisGenerator(..., use_gpu=True)` is created. `aobasis.kl.HAS_CUPY` and `aobasis.kl.cp` are gone; use `aobasis.kl._load_cupy()` if you need to know whether CuPy is available.
+- **GPU KL covariance accuracy (#15).** The CuPy `K_{5/6}` kernel switched to a six-term asymptotic expansion at z = 2, where it is only good to ~2e-3, and one of its coefficients was wrong. It now uses Temme's series and Steed's continued fraction (Numerical Recipes `bessik`), which match `scipy.special.kv` to ~1e-14, so `use_gpu=True` gives the same covariance as the CPU to ~1e-12 (it was off by up to 0.2%).
 
 ### Changed
 
