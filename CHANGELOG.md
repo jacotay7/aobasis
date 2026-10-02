@@ -1,6 +1,18 @@
 # Changelog
 
-## Unreleased
+## 2.0.0 (2026-10-01)
+
+A large release: correctness fixes across every basis, new bases and options (DM KL, influence-function fitting, annular Zernikes, Kolmogorov KL, Paley Hadamard, hexagonal grids), richer save files and FITS, and a full set of tutorials and example scripts.
+
+### Breaking changes and how to upgrade
+
+- **Unknown `generate()` keywords raise `TypeError`** (#17). Remove options a generator doesn't support; they were silently ignored before.
+- **`ignore_piston=True` makes Zernike, Fourier and Hadamard modes exactly zero-mean** (#14), and Zernike then allows at most `n_actuators - 1` modes, like Fourier and Hadamard. Hadamard entries are no longer exactly ±1 with `ignore_piston`.
+- **KL modes follow a fixed sign and rotation convention** (#20, #58). Eigenvalues and subspaces are unchanged, but individual modes (signs, and rotations within degenerate pairs) differ from 1.x. Re-measure interaction matrices that were built with 1.x KL modes.
+- **`aobasis.kl.HAS_CUPY`, `aobasis.kl.cp` and `aobasis.kl.cp_eigh` are gone** (#19); CuPy is imported on first GPU use.
+- **`make_circular_actuator_grid(D, 2)` raises**, `(D, 1)` returns the centre (#16), and generators reject empty `positions`.
+- **Zonal fast may return fewer patterns** for the same `min_distance` (#34), because it now uses the better of a lattice and a DSATUR colouring.
+- **`benchmark.py` moved to `examples/benchmark.py`** and `tutorials/getting_started.ipynb` was replaced by eight notebooks (#23).
 
 ### Fixed
 
