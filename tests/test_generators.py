@@ -103,25 +103,15 @@ def test_kl_gpu_fallback_warning(small_grid):
         # Restore original value
         kl_module.HAS_CUPY = original_has_cupy
 
-def test_kl_gpu_path_when_available(small_grid):
-    """Test GPU code path if CuPy is available, otherwise skip."""
-    try:
-        import cupy as cp
-        # If CuPy is available, test GPU path
-        gen_gpu = KLBasisGenerator(small_grid, fried_parameter=0.16, outer_scale=30.0, use_gpu=True)
-        modes_gpu = gen_gpu.generate(n_modes=5)
-        
-        # Compare with CPU
-        gen_cpu = KLBasisGenerator(small_grid, fried_parameter=0.16, outer_scale=30.0, use_gpu=False)
-        modes_cpu = gen_cpu.generate(n_modes=5)
-        
-        # Results should be similar (within numerical tolerance)
-        # Eigenvectors can have opposite signs
-        assert modes_gpu.shape == modes_cpu.shape
-        assert np.allclose(gen_gpu.eigenvalues, gen_cpu.eigenvalues, rtol=1e-3)
-        
-    except ImportError:
-        pytest.skip("CuPy not available, skipping GPU tests")
+def test_kl_gpu_path_when_available(small_grid, gpu):
+    """GPU and CPU KL agree (runs only with CuPy and a CUDA device)."""
+    gen_gpu = KLBasisGenerator(small_grid, fried_parameter=0.16, outer_scale=30.0, use_gpu=True)
+    modes_gpu = gen_gpu.generate(n_modes=5)
+    gen_cpu = KLBasisGenerator(small_grid, fried_parameter=0.16, outer_scale=30.0, use_gpu=False)
+    modes_cpu = gen_cpu.generate(n_modes=5)
+
+    assert modes_gpu.shape == modes_cpu.shape
+    assert np.allclose(gen_gpu.eigenvalues, gen_cpu.eigenvalues, rtol=1e-3)
 
 def test_zernike_generation(grid):
     gen = ZernikeBasisGenerator(grid, pupil_radius=5.0)
