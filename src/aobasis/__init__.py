@@ -14,6 +14,7 @@ from .base import (
     removal_basis,
 )
 from .kl import KLBasisGenerator
+from .dm_kl import DMKLBasisGenerator
 from .zernike import ZernikeBasisGenerator
 from .fourier import FourierBasisGenerator
 from .zonal import ZonalBasisGenerator, ZonalFastBasisGenerator
@@ -35,6 +36,7 @@ __all__ = [
     "removal_basis",
     "positions_from_mask",
     "KLBasisGenerator",
+    "DMKLBasisGenerator",
     "ZernikeBasisGenerator",
     "FourierBasisGenerator",
     "ZonalBasisGenerator",
