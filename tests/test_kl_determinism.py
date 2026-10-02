@@ -17,8 +17,8 @@ def _scrambling_eigh(seed):
     """eigh that rotates degenerate eigenvectors and flips signs at random."""
     rng = np.random.default_rng(seed)
 
-    def eigh(cov):
-        values, vectors = scipy_eigh(cov)
+    def eigh(cov, **kwargs):
+        values, vectors = scipy_eigh(cov, **kwargs)
         vectors = vectors * rng.choice([-1.0, 1.0], size=vectors.shape[1])
         start = 0
         while start < len(values):

@@ -18,12 +18,14 @@
 
 - **`remove=` on Zernike, Fourier, Hadamard and KL `generate()` (#27)** keeps given modes out of the basis: names (`"piston"`, `"tip"`, `"tilt"`, `"tiptilt"`), `(n_actuators, k)` arrays, or a list of them. Zernike and Hadamard skip candidates that lie inside the removed modes (tip and tilt for `"tiptilt"`), Fourier picks frequencies independent of them, and KL diagonalizes `P C P` with `P = I - U Uᵀ`. New helpers `aobasis.project_out(modes, subspace)` and `aobasis.removal_basis(positions, remove)`.
 - **`normalize=` on every generator (#26)**: `"rms"`, `"l2"`, `"peak"` or `"pv"`, applied after piston removal and orthonormalization, and the helper `aobasis.normalize_modes`. KL `eigenvalues` are rescaled to stay the variance of each returned mode's coefficient.
+- **KL options (#28).** `outer_scale=np.inf` gives Kolmogorov turbulence (with `ignore_piston=True`; checked against Noll's Δ₁ and Δ₃). `r0_wavelength` and `wavelength` report `eigenvalues` at another wavelength. The covariance is evaluated once per distinct actuator separation, and only the leading eigenpairs are computed when few are needed: 100 KL modes on 3096 actuators take 1.8 s instead of 8.1 s, the full basis 5.2 s.
 
 ### Changed
 
 - **CI and packaging (#25).** CI runs on Python 3.8–3.14, on aarch64 (`ubuntu-24.04-arm`) and without the `plot` extra, and on every pull request. The publish workflow runs the tests and checks that the release tag matches the package version. aobasis ships a `py.typed` marker. Plotting tests moved to `tests/test_plotting.py` and skip without matplotlib; GPU tests run whenever CuPy and a CUDA device are present.
 - **Unknown `generate()` keywords raise `TypeError` (#17).** Every generator used to accept and silently ignore any keyword, so typos such as `orthonormalise=True` or unsupported options such as `ZonalFastBasisGenerator.generate(orthonormalize=True)` did nothing.
 - **Rank warning with `orthonormalize=True`.** The warning now flags modes that are numerically combinations of the modes before them (their orthonormalized versions would be rounding noise) instead of the rank of the raw matrix, so a well-defined orthonormalization of an ill-conditioned basis no longer warns.
+- **KL documentation (#24)** states the units: `eigenvalues` are rad² at `wavelength`; positions, `fried_parameter` and `outer_scale` share one length unit; modes are sampled at actuator positions, not fitted to influence functions.
 
 ## 1.2.0
 
