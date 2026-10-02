@@ -22,6 +22,7 @@
 - **Influence-function fitting (#11).** `fit_to_influence_functions(modes, influence_functions)` gives least-squares DM commands whose surfaces best match modes sampled on pupil points, with `rcond` truncation, Tikhonov `regularization`, `orthonormalize` (surfaces orthonormal over the pupil) and per-mode residuals. `gaussian_influence_functions` and `make_pupil_points` build the inputs.
 - **`DMKLBasisGenerator` (#29)**: KL modes of a DM from its influence functions by double diagonalization (Gendron 1995). The modes are commands whose DM surfaces are orthonormal over the pupil and whose coefficients are statistically independent; `ignore_piston`/`remove=` keep every surface exactly orthogonal to the removed pupil modes, and the KL sign/rotation convention applies.
 - **Richer save files and FITS (#30).** `save` also stores the generator's `parameters`, the `generate_options` of the last call, KL `eigenvalues` and the `aobasis_version`; `load` exposes them on the returned `ConcreteBasis` (older files still load). `save_fits`/`load_fits` write and read the same content as FITS through the new `fits` extra (astropy).
+- **Zernike options (#31).** `generate(..., ordering="ansi" | "fringe")` besides Noll; `ZernikeBasisGenerator(..., obscuration=ε)` gives annular Zernike polynomials orthonormal over the annulus (stable to radial order > 100, matching Mahajan's closed forms); `pupil_radius` defaults to the largest actuator radius.
 
 ### Changed
 

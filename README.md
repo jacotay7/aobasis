@@ -7,7 +7,7 @@ A Python package for generating various modal basis sets for Adaptive Optics (AO
 - **Karhunen-Loève (KL) Modes**: Optimized for atmospheric turbulence (Von Kármán spectrum).
   - Optional GPU acceleration available for large systems (requires CuPy).
   - `DMKLBasisGenerator`: KL modes of the DM itself, from its influence functions (double diagonalization): orthonormal surfaces over the pupil, statistically independent coefficients.
-- **Zernike Polynomials**: Standard optical aberration modes (Noll indexing and normalization).
+- **Zernike Polynomials**: Standard optical aberration modes with Noll normalization, in Noll, OSA/ANSI or Fringe order (`ordering=`), and annular Zernikes for a central obstruction (`obscuration=`).
 - **Fourier Modes**: Sinusoidal basis sets; aliased frequencies are skipped, so each mode is independent of the ones before it. Near full size the raw matrix is ill-conditioned; `orthonormalize=True` gives an accurate orthonormal basis.
 - **Zonal Basis**: Single actuator pokes (Identity).
 - **Zonal Fast Basis**: Distance-constrained grouped actuator pokes for faster calibration sweeps.
