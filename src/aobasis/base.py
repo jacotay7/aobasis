@@ -1,9 +1,10 @@
 from abc import ABC, abstractmethod
+import json
 import warnings
 import numpy as np
 from scipy.linalg import qr
 from pathlib import Path
-from typing import Callable, Optional, Sequence, Union
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 from .utils import plot_basis_modes
 
 
@@ -21,6 +22,29 @@ def _validate_positions_array(positions: np.ndarray) -> np.ndarray:
         raise ValueError("positions must contain only finite values.")
 
     return array
+
+def _json_safe(value: Any) -> Any:
+    """``value`` as JSON-serializable data; arrays become a shape description."""
+    if value is None or isinstance(value, (bool, str)):
+        return value
+    if isinstance(value, (int, np.integer)):
+        return int(value)
+    if isinstance(value, (float, np.floating)):
+        return float(value)
+    if isinstance(value, np.ndarray):
+        return {"array_shape": list(value.shape)}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return repr(value)
+
+
+def _import_fits():
+    try:
+        from astropy.io import fits
+    except ImportError as exc:
+        raise ImportError("FITS support needs astropy; install it with: pip install 'aobasis[fits]'") from exc
+    return fits
+
 
 class BasisGenerator(ABC):
     """
@@ -160,31 +184,106 @@ class BasisGenerator(ABC):
         """
         pass
     
+    # Constructor arguments recorded by save(); subclasses list theirs.
+    _PARAMETERS: Tuple[str, ...] = ()
+
+    def _parameters(self) -> Dict[str, Any]:
+        return {name: _json_safe(getattr(self, name)) for name in self._PARAMETERS}
+
+    def _record_options(self, **options: Any) -> None:
+        """Remember the options of the current generate() call for save()."""
+        self.generate_options = {name: _json_safe(value) for name, value in options.items()}
+
+    def _metadata(self) -> Dict[str, Any]:
+        from . import __version__
+
+        return {
+            "basis_type": getattr(self, "basis_type", None) or self.__class__.__name__,
+            "aobasis_version": __version__,
+            "parameters": self._parameters() if not isinstance(self, ConcreteBasis) else self.parameters,
+            "generate_options": getattr(self, "generate_options", None) or {},
+        }
+
     def save(self, filepath: Union[str, Path]) -> None:
         """
-        Save the generated basis and actuator positions to a .npz file.
+        Save the generated basis to a .npz file.
+
+        The file holds ``modes``, ``positions``, ``basis_type``, the
+        generator's ``parameters`` and the ``generate_options`` of the last
+        :meth:`generate` call (both as JSON), KL ``eigenvalues`` when there
+        are any, and the ``aobasis_version``. :meth:`load` reads them back.
         """
         if self.modes is None:
             raise ValueError("No modes generated yet. Call generate() first.")
-            
+        meta = self._metadata()
+        arrays = {"modes": self.modes, "positions": self.positions}
+        eigenvalues = getattr(self, "eigenvalues", None)
+        if eigenvalues is not None:
+            arrays["eigenvalues"] = np.asarray(eigenvalues, dtype=float)
         np.savez(
             filepath,
-            modes=self.modes,
-            positions=self.positions,
-            basis_type=getattr(self, 'basis_type', None) or self.__class__.__name__,
+            basis_type=meta["basis_type"],
+            aobasis_version=meta["aobasis_version"],
+            parameters=json.dumps(meta["parameters"]),
+            generate_options=json.dumps(meta["generate_options"]),
+            **arrays,
         )
-        
+
+    def save_fits(self, filepath: Union[str, Path], overwrite: bool = False) -> None:
+        """
+        Save the basis to a FITS file (needs astropy: ``pip install 'aobasis[fits]'``).
+
+        The primary HDU holds ``modes`` as an ``(n_actuators, n_modes)``
+        image (``NAXIS1 = n_modes``), with ``BASIS``, ``AOBVER``, and the
+        JSON ``PARAMS`` and ``OPTIONS`` cards; image extensions ``POSITIONS``
+        and, for KL, ``EIGENVAL`` follow. :meth:`load_fits` reads it back.
+        """
+        fits = _import_fits()
+        if self.modes is None:
+            raise ValueError("No modes generated yet. Call generate() first.")
+        meta = self._metadata()
+        primary = fits.PrimaryHDU(np.asarray(self.modes, dtype=float))
+        primary.header["BASIS"] = meta["basis_type"]
+        primary.header["AOBVER"] = meta["aobasis_version"]
+        primary.header["PARAMS"] = json.dumps(meta["parameters"])
+        primary.header["OPTIONS"] = json.dumps(meta["generate_options"])
+        hdus = [primary, fits.ImageHDU(self.positions, name="POSITIONS")]
+        eigenvalues = getattr(self, "eigenvalues", None)
+        if eigenvalues is not None:
+            hdus.append(fits.ImageHDU(np.asarray(eigenvalues, dtype=float), name="EIGENVAL"))
+        fits.HDUList(hdus).writeto(filepath, overwrite=overwrite)
+
     @classmethod
-    def load(cls, filepath: Union[str, Path]) -> 'BasisGenerator':
+    def _from_saved(cls, filepath, positions, modes, basis_type, meta, eigenvalues) -> "ConcreteBasis":
+        if (
+            basis_type is not None
+            and cls not in (BasisGenerator, ConcreteBasis)
+            and basis_type != cls.__name__
+        ):
+            raise ValueError(f"{filepath} holds a {basis_type} basis, not {cls.__name__}.")
+        instance = ConcreteBasis(positions)
+        instance.modes = modes
+        instance.full_modes = modes
+        instance.basis_type = basis_type
+        instance.parameters = meta.get("parameters", {})
+        instance.generate_options = meta.get("generate_options", {})
+        instance.aobasis_version = meta.get("aobasis_version")
+        instance.eigenvalues = eigenvalues
+        return instance
+
+    @classmethod
+    def load(cls, filepath: Union[str, Path]) -> 'ConcreteBasis':
         """
         Load a basis saved with :meth:`save`.
 
-        Returns a :class:`ConcreteBasis` holding the saved modes and positions;
-        its ``basis_type`` attribute is the name of the generator that made it.
-        Generator parameters (pupil size, r0, ...) are not saved, so the
-        original generator is not rebuilt. Calling ``load`` on a specific
-        generator class (e.g. ``KLBasisGenerator.load``) raises ``ValueError``
-        if the file was saved by a different generator.
+        Returns a :class:`ConcreteBasis` holding the saved ``modes`` and
+        ``positions``, with ``basis_type`` (the generator that made it),
+        ``parameters``, ``generate_options``, ``eigenvalues`` (KL, else
+        ``None``) and ``aobasis_version``. Files from aobasis < 1.3 have no
+        parameters or options; those attributes are then empty. The original
+        generator is not rebuilt. Calling ``load`` on a specific generator
+        class (e.g. ``KLBasisGenerator.load``) raises ``ValueError`` if the
+        file was saved by a different generator.
 
         ``filepath`` may omit the ``.npz`` suffix that :meth:`save` (through
         ``np.savez``) adds.
@@ -196,19 +295,30 @@ class BasisGenerator(ABC):
             positions = data['positions']
             modes = data['modes']
             basis_type = str(data['basis_type']) if 'basis_type' in data else None
+            eigenvalues = np.array(data['eigenvalues']) if 'eigenvalues' in data else None
+            meta = {
+                "parameters": json.loads(str(data["parameters"])) if "parameters" in data else {},
+                "generate_options": json.loads(str(data["generate_options"])) if "generate_options" in data else {},
+                "aobasis_version": str(data["aobasis_version"]) if "aobasis_version" in data else None,
+            }
+        return cls._from_saved(filepath, positions, modes, basis_type, meta, eigenvalues)
 
-        if (
-            basis_type is not None
-            and cls not in (BasisGenerator, ConcreteBasis)
-            and basis_type != cls.__name__
-        ):
-            raise ValueError(f"{filepath} holds a {basis_type} basis, not {cls.__name__}.")
-
-        instance = ConcreteBasis(positions)
-        instance.modes = modes
-        instance.full_modes = modes
-        instance.basis_type = basis_type
-        return instance
+    @classmethod
+    def load_fits(cls, filepath: Union[str, Path]) -> 'ConcreteBasis':
+        """Load a basis saved with :meth:`save_fits` (needs astropy); see :meth:`load`."""
+        fits = _import_fits()
+        with fits.open(filepath) as hdus:
+            header = hdus[0].header
+            modes = np.array(hdus[0].data, dtype=float)
+            positions = np.array(hdus["POSITIONS"].data, dtype=float)
+            eigenvalues = np.array(hdus["EIGENVAL"].data, dtype=float) if "EIGENVAL" in hdus else None
+            basis_type = header.get("BASIS")
+            meta = {
+                "parameters": json.loads(header.get("PARAMS", "{}")),
+                "generate_options": json.loads(header.get("OPTIONS", "{}")),
+                "aobasis_version": header.get("AOBVER"),
+            }
+        return cls._from_saved(filepath, positions, modes, basis_type, meta, eigenvalues)
 
     def plot(self, count: int = 6, outfile: Optional[Union[str, Path]] = None, **kwargs):
         """Plot the generated modes."""
@@ -394,6 +504,10 @@ class ConcreteBasis(BasisGenerator):
 
     basis_type: Optional[str] = None
     full_modes: Optional[np.ndarray] = None
+    parameters: Dict[str, Any] = {}
+    generate_options: Dict[str, Any] = {}
+    aobasis_version: Optional[str] = None
+    eigenvalues: Optional[np.ndarray] = None
 
     def generate(self, n_modes: int) -> np.ndarray:
         if self.full_modes is None:

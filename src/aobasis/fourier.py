@@ -6,6 +6,8 @@ class FourierBasisGenerator(BasisGenerator):
     """
     Generates Fourier modes (sine/cosine) on the actuator grid.
     """
+
+    _PARAMETERS = ("pupil_diameter",)
     
     def __init__(self, positions: np.ndarray, pupil_diameter: float):
         super().__init__(positions)
@@ -60,6 +62,13 @@ class FourierBasisGenerator(BasisGenerator):
             ValueError: If the grid supports fewer than ``n_modes``
                 independent Fourier modes.
         """
+        self._record_options(
+            n_modes=n_modes,
+            ignore_piston=ignore_piston,
+            orthonormalize=orthonormalize,
+            remove=remove,
+            normalize=normalize,
+        )
         _check_normalize(normalize)
         removed = self._removed_subspace(remove, ignore_piston)
         n_modes = self._validate_n_modes(n_modes, max_modes=self.n_actuators - removed.shape[1])

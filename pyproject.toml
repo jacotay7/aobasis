@@ -37,8 +37,12 @@ requires-python = ">=3.8"
 plot = [
     "matplotlib>=3.5",
 ]
+fits = [
+    "astropy>=5.0",
+]
 dev = [
     "matplotlib>=3.5",
+    "astropy>=5.0",
     "pytest",
     "pytest-cov",
     "imageio",

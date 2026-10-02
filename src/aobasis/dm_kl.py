@@ -75,6 +75,12 @@ class DMKLBasisGenerator(BasisGenerator):
         )
         self.eigenvalues: Optional[np.ndarray] = None
 
+    def _parameters(self):
+        params = self._turbulence._parameters()
+        params.pop("use_gpu")
+        params.update(rcond=self.rcond, n_points=int(self.points.shape[0]))
+        return params
+
     @property
     def surfaces(self) -> np.ndarray:
         """DM surfaces of the generated modes, ``(n_points, n_modes)``."""
@@ -103,6 +109,9 @@ class DMKLBasisGenerator(BasisGenerator):
                 ``"peak"`` or ``"pv"`` scale the commands instead, with
                 ``eigenvalues`` rescaled as for :class:`KLBasisGenerator`.
         """
+        self._record_options(
+            n_modes=n_modes, ignore_piston=ignore_piston, remove=remove, normalize=normalize
+        )
         _check_normalize(normalize)
         turbulence = self._turbulence
         n_points = self.points.shape[0]

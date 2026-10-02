@@ -228,6 +228,8 @@ class KLBasisGenerator(BasisGenerator):
             phase variance scales as ``(r0_wavelength / wavelength)^2``.
     """
 
+    _PARAMETERS = ("fried_parameter", "outer_scale", "use_gpu", "r0_wavelength", "wavelength")
+
     def __init__(
         self,
         positions: np.ndarray,
@@ -360,6 +362,13 @@ class KLBasisGenerator(BasisGenerator):
                 rescaled to stay the variance of each returned mode's
                 coefficient.
         """
+        self._record_options(
+            n_modes=n_modes,
+            ignore_piston=ignore_piston,
+            orthonormalize=orthonormalize,
+            remove=remove,
+            normalize=normalize,
+        )
         _check_normalize(normalize)
         removed = self._removed_subspace(remove, ignore_piston)
         n_modes = self._validate_n_modes(n_modes, max_modes=self.n_actuators - removed.shape[1])
