@@ -19,7 +19,7 @@ A Python package for generating various modal basis sets for Adaptive Optics (AO
 - **Visualization**: Built-in plotting tools for quick inspection (`pip install aobasis[plot]` for matplotlib).
 - **Serialization**: `save`/`load` use `.npz` files holding the modes, positions, generator parameters, `generate()` options, KL eigenvalues and aobasis version (`load` returns a `ConcreteBasis` with all of them). `save_fits`/`load_fits` do the same in FITS (`pip install aobasis[fits]`).
 - **Influence-function fitting**: `fit_to_influence_functions` turns modes sampled on the pupil into least-squares DM commands, with `gaussian_influence_functions` and `make_pupil_points` to build the inputs.
-- **Geometry helpers**: `make_circular_actuator_grid`, `make_concentric_actuator_grid`, and `positions_from_mask` for a boolean actuator map.
+- **Geometry helpers**: `make_circular_actuator_grid` (by `grid_size` or `pitch`, actuators on the rim or in cell centres), `make_hexagonal_actuator_grid`, `make_concentric_actuator_grid`, all with `obscuration=` and spider arms (`n_spiders`, `spider_width`, `spider_angle`), and `positions_from_mask` for a boolean actuator map.
 
 ## Installation
 

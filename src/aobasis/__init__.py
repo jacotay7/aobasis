@@ -23,6 +23,7 @@ from .influence import fit_to_influence_functions, gaussian_influence_functions,
 from .utils import (
     make_circular_actuator_grid,
     make_concentric_actuator_grid,
+    make_hexagonal_actuator_grid,
     plot_basis_modes,
     positions_from_mask,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "HadamardBasisGenerator",
     "make_circular_actuator_grid",
     "make_concentric_actuator_grid",
+    "make_hexagonal_actuator_grid",
     "make_pupil_points",
     "gaussian_influence_functions",
     "fit_to_influence_functions",
