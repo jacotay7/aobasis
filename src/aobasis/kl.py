@@ -1,7 +1,7 @@
 import warnings
 
 import numpy as np
-from typing import Optional
+from typing import Callable, Optional
 from scipy.special import kv, gamma
 from scipy.linalg import eigh
 from scipy.spatial.distance import pdist, squareform
@@ -141,13 +141,19 @@ def _cluster_end(eigenvalues: np.ndarray, start: int) -> int:
 
 
 def _canonical_eigenvectors(
-    eigenvalues: np.ndarray, vectors: np.ndarray, positions: np.ndarray, n_keep: int
+    eigenvalues: np.ndarray,
+    vectors: np.ndarray,
+    positions: np.ndarray,
+    n_keep: int,
+    references: Optional[Callable[[int], np.ndarray]] = None,
 ) -> np.ndarray:
     """First ``n_keep`` eigenvectors, with fixed signs and rotations.
 
     ``eigenvalues`` are sorted in decreasing order and ``vectors`` holds at
     least every eigenvector of the clusters that the first ``n_keep`` touch,
     so a cluster cut by ``n_keep`` is fixed before it is truncated.
+    ``references(d)`` gives the ``d`` reference vectors in the coordinates
+    of ``vectors`` (by default :func:`_reference_vectors` of ``positions``).
 
     Within a cluster of (near-)equal eigenvalues spanning ``V``, the modes
     become the in-order orthonormalization of ``V V^T R`` for fixed reference
@@ -160,7 +166,7 @@ def _canonical_eigenvectors(
     while start < n_keep:
         stop = min(_cluster_end(eigenvalues, start), vectors.shape[1])
         block = vectors[:, start:stop]
-        refs = _reference_vectors(positions, stop - start)
+        refs = (references or (lambda d: _reference_vectors(positions, d)))(stop - start)
         q, r = np.linalg.qr(block @ (block.T @ refs))
         signs = np.sign(np.diag(r))
         signs[signs == 0] = 1.0
