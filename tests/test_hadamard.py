@@ -31,11 +31,11 @@ def test_smallest_construction_is_orthogonal_on_matching_grids():
 
 
 def test_smallest_construction_truncates_less():
-    rng = np.random.default_rng(0)
-    positions = rng.uniform(-1, 1, (97, 2))
-    sylvester = HadamardBasisGenerator(positions).generate(96, ignore_piston=True)
-    smallest = HadamardBasisGenerator(positions).generate(96, ignore_piston=True, construction="smallest")
-    assert np.linalg.cond(smallest) < np.linalg.cond(sylvester)
+    positions = np.random.default_rng(0).uniform(-1, 1, (97, 2))  # order 104 instead of 128
+    sylvester = HadamardBasisGenerator(positions).generate(97)
+    smallest = HadamardBasisGenerator(positions).generate(97, construction="smallest")
+    assert np.linalg.cond(smallest) < 0.95 * np.linalg.cond(sylvester)  # 10.2 vs 11.3
+    assert np.abs(smallest[:, 1:].mean(axis=0)).max() < 0.5 * np.abs(sylvester[:, 1:].mean(axis=0)).max()
 
 
 @pytest.mark.parametrize("n_modes, zero_mean", [(60, True), (149, False)])
