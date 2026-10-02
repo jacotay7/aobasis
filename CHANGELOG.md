@@ -12,6 +12,7 @@
 - **Degenerate grids (#16).** `make_circular_actuator_grid(D, 1)` returns one actuator at the centre and `(D, 2)` raises; both used to return an empty array. Generators reject an empty `positions` array. The docstring states the pitch, `D / (grid_size - 1)`, with the outermost actuators on the rim.
 - **Loaded bases (#21).** `ConcreteBasis.generate(n)` stores the returned modes in `modes` like every other generator, and keeps all saved modes in `full_modes`, so a later call can ask for more. `load(path)` accepts the path without the `.npz` suffix that `save` adds.
 - **Reproducible KL modes (#20).** KL eigenvectors used to come with an arbitrary sign, and an arbitrary rotation within each group of equal eigenvalues (symmetric pupils have many), so CPU, GPU and different LAPACK builds gave different modes. A fixed convention now picks them (see `KLBasisGenerator.generate`); CPU and GPU modes agree to 1e-8. Individual KL modes therefore differ from 1.2.0 (same eigenvalues and subspaces); re-derive interaction matrices built from KL modes.
+- **Fourier conditioning is stated correctly (#40).** Fourier modes are each independent of the ones before them, but a basis near `n_actuators` modes on a circular pupil is numerically singular (σ_min/σ_max ≈ 1e-16 at full size on 1876 actuators), which the docs used to deny. Its warning now points to `orthonormalize=True`, which gives an accurate orthonormal basis with the same nested spans.
 
 ### Added
 
@@ -21,6 +22,7 @@
 
 - **CI and packaging (#25).** CI runs on Python 3.8–3.14, on aarch64 (`ubuntu-24.04-arm`) and without the `plot` extra, and on every pull request. The publish workflow runs the tests and checks that the release tag matches the package version. aobasis ships a `py.typed` marker. Plotting tests moved to `tests/test_plotting.py` and skip without matplotlib; GPU tests run whenever CuPy and a CUDA device are present.
 - **Unknown `generate()` keywords raise `TypeError` (#17).** Every generator used to accept and silently ignore any keyword, so typos such as `orthonormalise=True` or unsupported options such as `ZonalFastBasisGenerator.generate(orthonormalize=True)` did nothing.
+- **Rank warning with `orthonormalize=True`.** The warning now flags modes that are numerically combinations of the modes before them (their orthonormalized versions would be rounding noise) instead of the rank of the raw matrix, so a well-defined orthonormalization of an ill-conditioned basis no longer warns.
 
 ## 1.2.0
 

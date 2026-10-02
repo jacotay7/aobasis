@@ -96,27 +96,48 @@ class BasisGenerator(ABC):
         return modes
 
     def _finish(
-        self, modes: np.ndarray, orthonormalize: bool = False, removed: Optional[np.ndarray] = None
+        self,
+        modes: np.ndarray,
+        orthonormalize: bool = False,
+        removed: Optional[np.ndarray] = None,
+        rank_hint: str = "",
     ) -> np.ndarray:
         """Store ``modes`` as float, optionally orthonormalized, warning if rank-deficient.
 
         ``removed`` (orthonormal columns) is projected out of the modes first.
+        Without ``orthonormalize`` the warning reports the numerical rank of
+        the matrix (``rank_hint`` is appended to it). With it, the warning
+        flags modes that are (numerically) combinations of the modes before
+        them, whose orthonormalized versions would be rounding noise.
         """
         modes = np.asarray(modes, dtype=float)
         if removed is not None and removed.shape[1]:
             modes = modes - removed @ (removed.T @ modes)
         n_modes = modes.shape[1]
-        if n_modes:
+        name = self.__class__.__name__
+        if n_modes and not orthonormalize:
             rank = _numerical_rank(modes)
             if rank < n_modes:
                 warnings.warn(
-                    f"{self.__class__.__name__}: {n_modes} modes have rank {rank} on "
-                    f"these {self.n_actuators} actuators; some modes are linearly dependent.",
+                    f"{name}: {n_modes} modes have rank {rank} on these {self.n_actuators} "
+                    f"actuators; some modes are linearly dependent.{rank_hint}",
                     RuntimeWarning,
                     stacklevel=3,
                 )
-            if orthonormalize:
-                modes = orthonormalize_modes(modes)
+        elif n_modes:
+            q, r = np.linalg.qr(modes)
+            norms = np.linalg.norm(modes, axis=0)
+            residual = np.abs(np.diag(r))
+            dependent = np.flatnonzero(residual <= _DEPENDENT_RTOL * np.where(norms > 0, norms, 1.0))
+            if dependent.size:
+                warnings.warn(
+                    f"{name}: {dependent.size} of {n_modes} modes on these {self.n_actuators} "
+                    f"actuators are linearly dependent on the modes before them (first: mode "
+                    f"{dependent[0]}); their orthonormalized versions are rounding noise.",
+                    RuntimeWarning,
+                    stacklevel=3,
+                )
+            modes = _signed_q(q, r)
         self.modes = modes
         return modes
 
@@ -205,6 +226,10 @@ def _numerical_rank(modes: np.ndarray) -> int:
     tol = diag[0] * max(modes.shape) * np.finfo(float).eps
     return int(np.count_nonzero(diag > tol))
 
+
+# With orthonormalize, a mode whose residual against the modes before it is
+# below this fraction of its norm counts as dependent on them.
+_DEPENDENT_RTOL = 1e-10
 
 # A candidate whose residual outside the removed subspace is below this
 # fraction of its norm is taken to lie inside it.
@@ -295,6 +320,13 @@ def project_out(modes: np.ndarray, subspace: np.ndarray) -> np.ndarray:
     return modes - basis @ (basis.T @ modes)
 
 
+def _signed_q(q: np.ndarray, r: np.ndarray) -> np.ndarray:
+    """Q of a QR factorization with each column's sign matching its input column."""
+    signs = np.sign(np.diag(r))
+    signs[signs == 0] = 1.0
+    return q * signs
+
+
 def orthonormalize_modes(modes: np.ndarray) -> np.ndarray:
     """Gram-Schmidt the columns of ``modes`` in order (QR), keeping each sign.
 
@@ -304,10 +336,7 @@ def orthonormalize_modes(modes: np.ndarray) -> np.ndarray:
     modes = np.asarray(modes, dtype=float)
     if modes.shape[1] == 0:
         return modes
-    q, r = np.linalg.qr(modes)
-    signs = np.sign(np.diag(r))
-    signs[signs == 0] = 1.0
-    return q * signs
+    return _signed_q(*np.linalg.qr(modes))
 
 
 class ConcreteBasis(BasisGenerator):

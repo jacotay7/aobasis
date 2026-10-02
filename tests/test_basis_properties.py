@@ -287,3 +287,24 @@ def test_concrete_basis_generate_stores_modes_and_can_grow_again(grid, tmp_path)
     assert np.allclose(loaded.generate(10), gen.modes)
     with pytest.raises(ValueError):
         loaded.generate(11)
+
+
+def test_orthonormalize_warns_only_for_genuinely_dependent_modes(grid):
+    with pytest.warns(RuntimeWarning, match="rounding noise"):
+        ZernikeBasisGenerator(grid, pupil_radius=5.0).generate(grid.shape[0], orthonormalize=True)
+
+
+def test_full_size_fourier_orthonormalizes_without_warning():
+    positions = make_circular_actuator_grid(10.0, 40)
+    n = positions.shape[0]
+    gen = FourierBasisGenerator(positions, pupil_diameter=10.0)
+    with pytest.warns(RuntimeWarning, match="orthonormalize=True gives an accurate"):
+        raw = gen.generate(n)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        ortho = gen.generate(n, orthonormalize=True)
+    assert np.allclose(ortho.T @ ortho, np.eye(n), atol=1e-12)
+    # Nested spans: each raw mode lies in the span of the orthonormal modes up to it.
+    k = n // 2
+    residual = raw[:, :k] - ortho[:, :k] @ (ortho[:, :k].T @ raw[:, :k])
+    assert np.linalg.norm(residual) <= 1e-8 * np.linalg.norm(raw[:, :k])
