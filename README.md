@@ -115,7 +115,7 @@ kl_gen.save("my_kl_basis.npz")
 
 ## Zonal Fast Basis
 
-`ZonalFastBasisGenerator` groups actuators into binary poke patterns such that no two actuators in the same mode are closer than a user-defined distance `D`. This is useful when you want a compact calibration basis that reduces the number of measurements compared with pure zonal pokes. For square-grid actuator layouts it uses a modulo lattice grouping directly, and for exotic layouts it falls back to a greedy graph-coloring approach.
+`ZonalFastBasisGenerator` groups actuators into binary poke patterns such that no two actuators in the same mode are closer than a user-defined distance `D`. This is useful when you want a compact calibration basis that reduces the number of measurements compared with pure zonal pokes. It colours the actuators' conflict graph greedily (DSATUR) and, when the actuators lie on a lattice (square, hexagonal, ...), also with the best sublattice colouring, keeping whichever needs fewer modes. `generate(signs="random")` gives each poke a random sign.
 
 ```python
 import numpy as np
