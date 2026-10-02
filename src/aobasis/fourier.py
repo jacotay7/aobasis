@@ -1,5 +1,6 @@
 import numpy as np
-from .base import BasisGenerator, RemoveSpec, removal_basis
+from typing import Optional
+from .base import BasisGenerator, RemoveSpec, _check_normalize, removal_basis
 
 class FourierBasisGenerator(BasisGenerator):
     """
@@ -18,6 +19,7 @@ class FourierBasisGenerator(BasisGenerator):
         ignore_piston: bool = False,
         orthonormalize: bool = False,
         remove: RemoveSpec = None,
+        normalize: Optional[str] = None,
     ) -> np.ndarray:
         """
         Generate real Fourier modes: cos/sin pairs of increasing spatial frequency.
@@ -49,10 +51,16 @@ class FourierBasisGenerator(BasisGenerator):
                 :func:`aobasis.removal_basis`). Frequencies are chosen to be
                 independent of them.
 
+            normalize: Scale each mode to unit ``"rms"``, ``"l2"``,
+                ``"peak"`` or ``"pv"`` after everything else (see
+                :func:`aobasis.normalize_modes`). ``None`` keeps the
+                generator's own scale.
+
         Raises:
             ValueError: If the grid supports fewer than ``n_modes``
                 independent Fourier modes.
         """
+        _check_normalize(normalize)
         removed = self._removed_subspace(remove, ignore_piston)
         n_modes = self._validate_n_modes(n_modes, max_modes=self.n_actuators - removed.shape[1])
         if n_modes == 0:
@@ -136,6 +144,7 @@ class FourierBasisGenerator(BasisGenerator):
             np.column_stack(chosen),
             orthonormalize=orthonormalize,
             removed=removed,
+            normalize=normalize,
             rank_hint=" Each Fourier mode is independent of the modes before it, so "
             "orthonormalize=True gives an accurate orthonormal basis with the same nested spans.",
         )

@@ -101,6 +101,7 @@ class BasisGenerator(ABC):
         orthonormalize: bool = False,
         removed: Optional[np.ndarray] = None,
         rank_hint: str = "",
+        normalize: Optional[str] = None,
     ) -> np.ndarray:
         """Store ``modes`` as float, optionally orthonormalized, warning if rank-deficient.
 
@@ -109,7 +110,9 @@ class BasisGenerator(ABC):
         the matrix (``rank_hint`` is appended to it). With it, the warning
         flags modes that are (numerically) combinations of the modes before
         them, whose orthonormalized versions would be rounding noise.
+        ``normalize`` is applied last (see :func:`normalize_modes`).
         """
+        _check_normalize(normalize)
         modes = np.asarray(modes, dtype=float)
         if removed is not None and removed.shape[1]:
             modes = modes - removed @ (removed.T @ modes)
@@ -138,8 +141,8 @@ class BasisGenerator(ABC):
                     stacklevel=3,
                 )
             modes = _signed_q(q, r)
-        self.modes = modes
-        return modes
+        self.modes = normalize_modes(modes, normalize)
+        return self.modes
 
     @abstractmethod
     def generate(self, n_modes: int, **kwargs) -> np.ndarray:
@@ -318,6 +321,48 @@ def project_out(modes: np.ndarray, subspace: np.ndarray) -> np.ndarray:
         raise ValueError("modes must have shape (n_actuators, n_modes).")
     basis = removal_basis(np.zeros((modes.shape[0], 2)), np.asarray(subspace, dtype=float))
     return modes - basis @ (basis.T @ modes)
+
+
+NORMALIZATIONS = ("rms", "l2", "peak", "pv")
+
+
+def _check_normalize(how: Optional[str]) -> None:
+    if how is not None and how not in NORMALIZATIONS:
+        raise ValueError(f"normalize must be None or one of {NORMALIZATIONS}, got {how!r}.")
+
+
+def mode_scales(modes: np.ndarray, how: str) -> np.ndarray:
+    """Per-mode size under ``how`` (see :func:`normalize_modes`)."""
+    _check_normalize(how)
+    modes = np.asarray(modes, dtype=float)
+    if modes.shape[0] == 0:
+        return np.zeros(modes.shape[1])
+    if how == "rms":
+        return np.sqrt(np.mean(modes**2, axis=0))
+    if how == "l2":
+        return np.linalg.norm(modes, axis=0)
+    if how == "peak":
+        return np.max(np.abs(modes), axis=0)
+    return np.max(modes, axis=0) - np.min(modes, axis=0)
+
+
+def normalize_modes(modes: np.ndarray, how: Optional[str]) -> np.ndarray:
+    """Scale each column of ``modes`` to unit size.
+
+    Args:
+        modes: ``(n_actuators, n_modes)`` matrix.
+        how: ``None`` (unchanged), ``"rms"`` (unit RMS over the actuators),
+            ``"l2"`` (unit Euclidean norm), ``"peak"`` (largest ``|value|``
+            is 1, like a zonal poke) or ``"pv"`` (peak-to-valley is 1).
+            Columns of size zero (all zero, or constant such as piston for
+            ``"pv"``) are left as they are.
+    """
+    modes = np.asarray(modes, dtype=float)
+    if how is None:
+        _check_normalize(how)
+        return modes
+    scale = mode_scales(modes, how)
+    return modes / np.where(scale > 0, scale, 1.0)
 
 
 def _signed_q(q: np.ndarray, r: np.ndarray) -> np.ndarray:

@@ -1,9 +1,10 @@
 import warnings
 
 import numpy as np
+from typing import Optional
 from scipy.special import kv, gamma
 from scipy.linalg import eigh
-from .base import BasisGenerator, RemoveSpec
+from .base import BasisGenerator, RemoveSpec, _check_normalize, mode_scales
 
 # CuPy is optional and slow to import, so it is loaded on first GPU use.
 _CUPY_BACKEND = None  # (cupy module, K_{5/6} kernel) once loaded, False if unavailable
@@ -267,6 +268,7 @@ class KLBasisGenerator(BasisGenerator):
         ignore_piston: bool = False,
         orthonormalize: bool = False,
         remove: RemoveSpec = None,
+        normalize: Optional[str] = None,
     ) -> np.ndarray:
         """
         Generate KL modes (orthonormal columns, decreasing variance).
@@ -293,7 +295,14 @@ class KLBasisGenerator(BasisGenerator):
                 covariance is diagonalized with ``P = I - U U^T``, ``U`` an
                 orthonormal basis of the removed modes, so the KL modes are
                 those of the turbulence left after removing them.
+            normalize: Scale each mode to unit ``"rms"``, ``"l2"``,
+                ``"peak"`` or ``"pv"`` after everything else (see
+                :func:`aobasis.normalize_modes`). ``None`` keeps the
+                generator's own scale (unit L2 norm). ``eigenvalues`` are
+                rescaled to stay the variance of each returned mode's
+                coefficient.
         """
+        _check_normalize(normalize)
         removed = self._removed_subspace(remove, ignore_piston)
         n_modes = self._validate_n_modes(n_modes, max_modes=self.n_actuators - removed.shape[1])
 
@@ -324,6 +333,15 @@ class KLBasisGenerator(BasisGenerator):
         eigenvectors = eigenvectors[:, sorter[:n_vectors]]
         if self.use_gpu:
             eigenvectors = cp.asnumpy(eigenvectors)
-        self.eigenvalues = eigenvalues[:n_modes]
-        self.modes = _canonical_eigenvectors(eigenvalues, eigenvectors, self.positions, n_modes)
+        modes = _canonical_eigenvectors(eigenvalues, eigenvectors, self.positions, n_modes)
+        eigenvalues = eigenvalues[:n_modes]
+        if normalize is not None:
+            # phase = a m = (a s)(m / s): dividing a mode by s scales its
+            # coefficient variance by s^2.
+            scale = mode_scales(modes, normalize)
+            scale = np.where(scale > 0, scale, 1.0)
+            modes = modes / scale
+            eigenvalues = eigenvalues * scale**2
+        self.eigenvalues = eigenvalues
+        self.modes = modes
         return self.modes

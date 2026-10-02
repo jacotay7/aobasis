@@ -14,6 +14,7 @@ A Python package for generating various modal basis sets for Adaptive Optics (AO
 - **Flexible Geometry**: Works with arbitrary actuator positions (defaulting to circular grids).
 - **Mode Removal**: `ignore_piston=True` makes every mode zero-mean, and `remove=` keeps other modes out of the basis (`"tiptilt"`, or any `(n_actuators, k)` array). Zernike, Fourier and Hadamard modes have them projected out; KL diagonalizes the covariance with them removed. `aobasis.project_out` and `aobasis.removal_basis` do the same for any matrix.
 - **Orthonormalization**: Zernike, Fourier and Hadamard modes sampled on a discrete grid are not orthogonal; `generate(..., orthonormalize=True)` Gram-Schmidts them in order (`aobasis.orthonormalize_modes` does the same for any matrix). A `RuntimeWarning` flags a rank-deficient basis.
+- **Normalization**: `generate(..., normalize="rms" | "l2" | "peak" | "pv")` scales every mode to unit size after piston removal and orthonormalization (`aobasis.normalize_modes` does the same for any matrix). KL `eigenvalues` follow the normalization.
 - **Visualization**: Built-in plotting tools for quick inspection (`pip install aobasis[plot]` for matplotlib).
 - **Serialization**: Save and load basis sets to/from `.npz` files (`load` returns a `ConcreteBasis` with the original `basis_type`).
 - **Geometry helpers**: `make_circular_actuator_grid`, `make_concentric_actuator_grid`, and `positions_from_mask` for a boolean actuator map.

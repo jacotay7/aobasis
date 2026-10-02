@@ -1,8 +1,8 @@
 import warnings
 
 import numpy as np
-from typing import Tuple
-from .base import BasisGenerator, RemoveSpec
+from typing import Tuple, Optional
+from .base import BasisGenerator, RemoveSpec, _check_normalize
 
 class ZernikeBasisGenerator(BasisGenerator):
     """
@@ -50,6 +50,7 @@ class ZernikeBasisGenerator(BasisGenerator):
         ignore_piston: bool = False,
         orthonormalize: bool = False,
         remove: RemoveSpec = None,
+        normalize: Optional[str] = None,
     ) -> np.ndarray:
         """
         Generate Noll-normalized Zernike modes in Noll order.
@@ -75,7 +76,12 @@ class ZernikeBasisGenerator(BasisGenerator):
                 ``"tiptilt"`` or an ``(n_actuators, k)`` array (see
                 :func:`aobasis.removal_basis`). Zernikes that lie inside the
                 removed modes (tip and tilt for ``"tiptilt"``) are skipped.
+            normalize: Scale each mode to unit ``"rms"``, ``"l2"``,
+                ``"peak"`` or ``"pv"`` after everything else (see
+                :func:`aobasis.normalize_modes`). ``None`` keeps the
+                generator's own scale.
         """
+        _check_normalize(normalize)
         removed = self._removed_subspace(remove, ignore_piston)
         n_modes = self._validate_n_modes(n_modes, max_modes=self.n_actuators - removed.shape[1])
         if n_modes == 0:
@@ -104,7 +110,7 @@ class ZernikeBasisGenerator(BasisGenerator):
             return np.column_stack(columns)
 
         modes = self._take_outside(candidates, n_modes, removed)
-        return self._finish(modes, orthonormalize=orthonormalize, removed=removed)
+        return self._finish(modes, orthonormalize=orthonormalize, removed=removed, normalize=normalize)
 
     @staticmethod
     def _noll_to_nm(j: int) -> Tuple[int, int]:

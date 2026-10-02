@@ -3,7 +3,7 @@ from typing import List, Optional, Set
 import numpy as np
 from scipy.spatial import cKDTree
 
-from .base import BasisGenerator
+from .base import BasisGenerator, normalize_modes
 
 class ZonalBasisGenerator(BasisGenerator):
     """
@@ -11,19 +11,22 @@ class ZonalBasisGenerator(BasisGenerator):
     Each mode corresponds to poking a single actuator.
     """
     
-    def generate(self, n_modes: int) -> np.ndarray:
+    def generate(self, n_modes: int, normalize: Optional[str] = None) -> np.ndarray:
         """
         Generate Zonal modes: the first ``n_modes`` columns of the identity.
 
         Args:
             n_modes: Number of modes, at most the number of actuators. Mode
                 ``k`` pokes actuator ``k``.
+            normalize: ``None``, ``"rms"``, ``"l2"``, ``"peak"`` or ``"pv"``
+                (see :func:`aobasis.normalize_modes`). Only ``"rms"`` changes
+                the unit pokes.
 
         Raises:
             ValueError: If ``n_modes`` exceeds the number of actuators.
         """
         n_modes = self._validate_n_modes(n_modes, max_modes=self.n_actuators)
-        self.modes = np.eye(self.n_actuators)[:, :n_modes]
+        self.modes = normalize_modes(np.eye(self.n_actuators)[:, :n_modes], normalize)
         return self.modes
 
 
@@ -185,13 +188,15 @@ class ZonalFastBasisGenerator(BasisGenerator):
         self.min_distance = float(min_distance)
         self.full_modes: Optional[np.ndarray] = None
 
-    def generate(self, n_modes: Optional[int] = None) -> np.ndarray:
+    def generate(self, n_modes: Optional[int] = None, normalize: Optional[str] = None) -> np.ndarray:
         """
         Generate zonal-fast modes.
 
         Args:
             n_modes: Number of grouped poke modes to return. If omitted, return
                 the full distance-constrained basis.
+            normalize: ``None`` (binary pokes), ``"rms"``, ``"l2"``,
+                ``"peak"`` or ``"pv"`` (see :func:`aobasis.normalize_modes`).
 
         Returns:
             ``(n_actuators, n_modes)`` matrix of binary grouped poke patterns.
@@ -200,7 +205,7 @@ class ZonalFastBasisGenerator(BasisGenerator):
         self.full_modes = full_basis
 
         if n_modes is None:
-            self.modes = full_basis
+            self.modes = normalize_modes(full_basis, normalize)
             return self.modes
 
         n_modes = self._validate_n_modes(n_modes)
@@ -209,5 +214,5 @@ class ZonalFastBasisGenerator(BasisGenerator):
                 f"Cannot generate {n_modes} zonal-fast modes; full basis only contains {full_basis.shape[1]} modes."
             )
 
-        self.modes = full_basis[:, :n_modes]
+        self.modes = normalize_modes(full_basis[:, :n_modes], normalize)
         return self.modes

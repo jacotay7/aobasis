@@ -5,7 +5,14 @@ try:
 except PackageNotFoundError:
     __version__ = "unknown"
 
-from .base import BasisGenerator, ConcreteBasis, orthonormalize_modes, project_out, removal_basis
+from .base import (
+    BasisGenerator,
+    ConcreteBasis,
+    normalize_modes,
+    orthonormalize_modes,
+    project_out,
+    removal_basis,
+)
 from .kl import KLBasisGenerator
 from .zernike import ZernikeBasisGenerator
 from .fourier import FourierBasisGenerator
@@ -21,6 +28,7 @@ from .utils import (
 __all__ = [
     "BasisGenerator",
     "ConcreteBasis",
+    "normalize_modes",
     "orthonormalize_modes",
     "project_out",
     "removal_basis",
