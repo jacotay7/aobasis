@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **CI and packaging (#25).** CI runs on Python 3.8–3.14, on aarch64 (`ubuntu-24.04-arm`) and without the `plot` extra, and on every pull request. The publish workflow runs the tests and checks that the release tag matches the package version. aobasis ships a `py.typed` marker. Plotting tests moved to `tests/test_plotting.py` and skip without matplotlib; GPU tests run whenever CuPy and a CUDA device are present.
+
 ## 1.2.0
 
 ### Changed

@@ -183,6 +183,13 @@ pip install -e ".[dev]"
 pytest
 ```
 
+CI cannot run the GPU tests: they need CuPy and a CUDA device, and skip without them. Run them locally before changing GPU code:
+
+```bash
+pip install cupy-cuda12x
+pytest -k gpu -rs   # -rs shows a skip reason if no device is found
+```
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
