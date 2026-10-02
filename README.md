@@ -181,19 +181,14 @@ Generation times for 100 modes benchmarked on the following system:
 
 *Note: KL basis generation is computationally intensive ($O(N^3)$) due to the dense covariance matrix diagonalization. GPU acceleration provides significant speedup (8-15x) for larger grids.*
 
-## Tutorials
+## Tutorials and examples
 
-We provide Jupyter notebooks to help you get started.
+- [`tutorials/`](tutorials) holds eight Jupyter walkthroughs, from a five-minute quickstart to KL statistics, influence-function fitting and interaction-matrix calibration. Start with [`tutorials/README.md`](tutorials/README.md).
+- [`examples/`](examples) holds ready-to-run scripts, e.g. `python examples/make_m2c.py kl --grid-size 20 --n-modes 100 -o kl.fits`.
 
-1.  **Getting Started**: `tutorials/getting_started.ipynb` covers all supported basis types, including zonal fast grouped pokes.
-
-To run the tutorials:
 ```bash
-# Install Jupyter if you haven't already
-pip install jupyter
-
-# Launch the notebook server
-jupyter notebook tutorials/getting_started.ipynb
+pip install "aobasis[tutorials]"
+jupyter notebook tutorials/
 ```
 
 ## Development & Testing
