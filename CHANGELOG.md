@@ -11,6 +11,7 @@
 - **`ignore_piston` removes piston (#14).** Zernike, Fourier and Hadamard modes with `ignore_piston=True` are now exactly zero-mean, with or without `orthonormalize`; before, only the piston column was dropped, and the sampled modes kept up to 36% of their RMS as piston. Hadamard entries are then no longer ±1. With piston removed, Zernike allows at most `n_actuators - 1` modes, like the other bases.
 - **Degenerate grids (#16).** `make_circular_actuator_grid(D, 1)` returns one actuator at the centre and `(D, 2)` raises; both used to return an empty array. Generators reject an empty `positions` array. The docstring states the pitch, `D / (grid_size - 1)`, with the outermost actuators on the rim.
 - **Loaded bases (#21).** `ConcreteBasis.generate(n)` stores the returned modes in `modes` like every other generator, and keeps all saved modes in `full_modes`, so a later call can ask for more. `load(path)` accepts the path without the `.npz` suffix that `save` adds.
+- **Reproducible KL modes (#20).** KL eigenvectors used to come with an arbitrary sign, and an arbitrary rotation within each group of equal eigenvalues (symmetric pupils have many), so CPU, GPU and different LAPACK builds gave different modes. A fixed convention now picks them (see `KLBasisGenerator.generate`); CPU and GPU modes agree to 1e-8. Individual KL modes therefore differ from 1.2.0 (same eigenvalues and subspaces); re-derive interaction matrices built from KL modes.
 
 ### Added
 
