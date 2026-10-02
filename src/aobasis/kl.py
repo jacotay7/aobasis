@@ -4,6 +4,7 @@ import numpy as np
 from typing import Optional
 from scipy.special import kv, gamma
 from scipy.linalg import eigh
+from scipy.spatial.distance import pdist, squareform
 from .base import BasisGenerator, RemoveSpec, _check_normalize, mode_scales
 
 # CuPy is optional and slow to import, so it is loaded on first GPU use.
@@ -168,30 +169,96 @@ def _canonical_eigenvectors(
     return vectors[:, :n_keep]
 
 
+# Ask LAPACK for only the leading eigenpairs when fewer than this fraction of
+# them are needed; above it the full solver is faster.
+_SUBSET_FRACTION = 0.2
+
+
+def _top_eigenpairs(cov: np.ndarray, n_modes: int):
+    """Leading eigenpairs of ``cov`` in decreasing order (CPU).
+
+    Returns at least every eigenpair of the degenerate cluster that eigenpair
+    ``n_modes - 1`` belongs to, so it can be canonicalized as a whole.
+    """
+    n = cov.shape[0]
+    count = n_modes + 8
+    while count < _SUBSET_FRACTION * n:
+        values, vectors = eigh(cov, subset_by_index=[n - count, n - 1])
+        values, vectors = values[::-1], vectors[:, ::-1]
+        if _cluster_end(values, n_modes - 1) < count:
+            return values, vectors
+        count *= 2
+    values, vectors = eigh(cov)
+    return values[::-1], vectors[:, ::-1]
+
+
 class KLBasisGenerator(BasisGenerator):
     """
     Generates Karhunen-Loève modes based on Von Kármán statistics.
 
     The modes are the eigenvectors of the Von Kármán phase covariance between
-    actuators, sorted by decreasing variance (``eigenvalues``). ``outer_scale``
-    changes the modes; ``fried_parameter`` only scales the covariance, so it
-    changes ``eigenvalues`` but not the modes.
+    the actuator positions, sorted by decreasing variance (``eigenvalues``).
+    The covariance is sampled at the actuator positions themselves: the modes
+    are not fitted to DM influence functions.
+
+    Units: ``positions``, ``fried_parameter`` and ``outer_scale`` share one
+    length unit (metres). ``eigenvalues`` are phase variances in rad² at
+    ``wavelength`` (by default ``r0_wavelength``, the wavelength at which
+    ``fried_parameter`` is given). ``outer_scale`` changes the modes;
+    ``fried_parameter`` and the wavelengths only scale the covariance, so
+    they change ``eigenvalues`` but not the modes.
+
+    Args:
+        positions: ``(n_actuators, 2)`` actuator coordinates.
+        fried_parameter: r0 at ``r0_wavelength``.
+        outer_scale: L0. ``np.inf`` gives Kolmogorov turbulence, whose piston
+            variance is infinite: ``generate`` then needs ``ignore_piston``
+            and diagonalizes ``-1/2 P D P`` with the structure function
+            ``D(r) = 6.88 (r / r0)^(5/3)``.
+        use_gpu: Build and diagonalize the covariance with CuPy (falls back
+            to the CPU with a warning when CuPy is missing).
+        r0_wavelength: Wavelength of ``fried_parameter`` (default 500 nm).
+        wavelength: Wavelength at which ``eigenvalues`` are reported;
+            phase variance scales as ``(r0_wavelength / wavelength)^2``.
     """
-    
-    def __init__(self, positions: np.ndarray, fried_parameter: float = 0.16, outer_scale: float = 30.0, use_gpu: bool = False):
+
+    def __init__(
+        self,
+        positions: np.ndarray,
+        fried_parameter: float = 0.16,
+        outer_scale: float = 30.0,
+        use_gpu: bool = False,
+        r0_wavelength: float = 500e-9,
+        wavelength: Optional[float] = None,
+    ):
         super().__init__(positions)
         if not np.isscalar(fried_parameter) or not np.isfinite(fried_parameter) or fried_parameter <= 0:
             raise ValueError("fried_parameter must be a positive finite scalar.")
-        if not np.isscalar(outer_scale) or not np.isfinite(outer_scale) or outer_scale <= 0:
-            raise ValueError("outer_scale must be a positive finite scalar.")
+        if not np.isscalar(outer_scale) or np.isnan(outer_scale) or outer_scale <= 0:
+            raise ValueError("outer_scale must be positive (np.inf for Kolmogorov turbulence).")
+        for value, name in ((r0_wavelength, "r0_wavelength"), (wavelength, "wavelength")):
+            if value is not None and (not np.isscalar(value) or not np.isfinite(value) or value <= 0):
+                raise ValueError(f"{name} must be a positive finite scalar.")
         self.fried_parameter = fried_parameter
         self.outer_scale = outer_scale
+        self.r0_wavelength = float(r0_wavelength)
+        self.wavelength = float(wavelength) if wavelength is not None else self.r0_wavelength
         self.eigenvalues = None
         self.use_gpu = use_gpu
-        
+
         if self.use_gpu and _load_cupy() is None:
             warnings.warn("CuPy not found; KLBasisGenerator falls back to the CPU.", RuntimeWarning, stacklevel=2)
             self.use_gpu = False
+
+    @property
+    def kolmogorov(self) -> bool:
+        """True for an infinite outer scale."""
+        return bool(np.isinf(self.outer_scale))
+
+    def _sigma2(self) -> float:
+        """Von Kármán phase variance (rad² at r0_wavelength)."""
+        A = (5.0/6.0) * (6.88/2.0) * gamma(5.0/6.0) / (gamma(1.0/6.0) * np.pi**(5.0/3.0))
+        return float(A * (self.outer_scale / self.fried_parameter)**(5.0/3.0))
 
     def _von_karman_covariance(self) -> np.ndarray:
         """Compute the Von Karman phase covariance matrix."""
@@ -199,68 +266,53 @@ class KLBasisGenerator(BasisGenerator):
             return self._von_karman_covariance_gpu()
         else:
             return self._von_karman_covariance_cpu()
-    
-    def _von_karman_covariance_cpu(self) -> np.ndarray:
-        """Compute the Von Karman phase covariance matrix on CPU."""
-        diffs = self.positions[:, None, :] - self.positions[None, :, :]
-        r = np.linalg.norm(diffs, axis=-1)
-        
-        L0 = self.outer_scale
+
+    def _covariance_of_distance(self, r: np.ndarray) -> np.ndarray:
+        """Phase covariance (rad² at r0_wavelength) at separations ``r`` > 0.
+
+        For Kolmogorov turbulence this is ``-D(r) / 2``, which equals the
+        covariance up to a constant that piston removal cancels.
+        """
         r0 = self.fried_parameter
-        
-        # Variance sigma^2 calculation to match structure function limit
-        A = (5.0/6.0) * (6.88/2.0) * gamma(5.0/6.0) / (gamma(1.0/6.0) * np.pi**(5.0/3.0))
-        sigma2 = A * (L0 / r0)**(5.0/3.0)
-        
-        cov = np.zeros_like(r, dtype=float)
-        
-        # Avoid division by zero
+        if self.kolmogorov:
+            return -0.5 * 6.88 * (r / r0) ** (5.0 / 3.0)
+        nu = 5.0 / 6.0
+        u = 2 * np.pi * r / self.outer_scale
+        out = np.full_like(r, self._sigma2(), dtype=float)
         mask = r > 1e-9
-        if np.any(mask):
-            u = 2 * np.pi * r[mask] / L0
-            nu = 5.0/6.0
-            norm_factor = 2**(1 - nu) / gamma(nu)
-            cov[mask] = sigma2 * norm_factor * (u**nu) * kv(nu, u)
-            
-        cov[~mask] = sigma2
+        out[mask] = self._sigma2() * 2 ** (1 - nu) / gamma(nu) * u[mask] ** nu * kv(nu, u[mask])
+        return out
+
+    def _von_karman_covariance_cpu(self) -> np.ndarray:
+        """Compute the Von Karman phase covariance matrix on CPU.
+
+        The covariance depends only on distance, and actuator grids have few
+        distinct distances, so it is evaluated once per distinct distance.
+        """
+        distances = pdist(self.positions)
+        unique, inverse = np.unique(distances, return_inverse=True)
+        cov = squareform(self._covariance_of_distance(unique)[inverse])
+        np.fill_diagonal(cov, 0.0 if self.kolmogorov else self._sigma2())
         return cov
-    
+
     def _von_karman_covariance_gpu(self):
         """Compute the Von Karman phase covariance matrix on GPU."""
         cp, kv56 = _load_cupy()
-        # Transfer positions to GPU
         positions_gpu = cp.asarray(self.positions, dtype=cp.float64)
-        
-        # Compute pairwise distances on GPU
         diffs = positions_gpu[:, None, :] - positions_gpu[None, :, :]
         r = cp.linalg.norm(diffs, axis=-1)
-        
-        L0 = self.outer_scale
-        r0 = self.fried_parameter
-        
-        # Compute sigma^2 using GPU operations
-        nu = 5.0/6.0
-        gamma_5_6 = float(gamma(5.0/6.0))
-        gamma_1_6 = float(gamma(1.0/6.0))
-        A = (5.0/6.0) * (6.88/2.0) * gamma_5_6 / (gamma_1_6 * cp.pi**(5.0/3.0))
-        sigma2 = A * (L0 / r0)**(5.0/3.0)
-        
-        # Compute covariance for all distances
-        u = 2 * cp.pi * r / L0
-        norm_factor = 2**(1 - nu) / gamma(nu)
-        
-        # Use custom GPU kernel for Bessel function K_{5/6}
+
+        if self.kolmogorov:
+            return -0.5 * 6.88 * (r / self.fried_parameter) ** (5.0 / 3.0)
+
+        nu = 5.0 / 6.0
+        sigma2 = self._sigma2()
+        u = 2 * cp.pi * r / self.outer_scale
         kv_values = cp.zeros_like(u, dtype=cp.float64)
         kv56(u, kv_values)
-        
-        # Compute covariance matrix
-        cov = sigma2 * norm_factor * (u**nu) * kv_values
-        
-        # Handle zero/very small distances (diagonal or very close points)
-        mask = r <= 1e-9
-        cov = cp.where(mask, sigma2, cov)
-        
-        return cov
+        cov = sigma2 * (2 ** (1 - nu) / gamma(nu)) * (u**nu) * kv_values
+        # Zero and very small distances (the diagonal, coincident actuators)
+        return cp.where(r <= 1e-9, sigma2, cov)
 
     def generate(
         self,
@@ -305,6 +357,13 @@ class KLBasisGenerator(BasisGenerator):
         _check_normalize(normalize)
         removed = self._removed_subspace(remove, ignore_piston)
         n_modes = self._validate_n_modes(n_modes, max_modes=self.n_actuators - removed.shape[1])
+        if self.kolmogorov:
+            piston = np.ones(self.n_actuators)
+            if np.linalg.norm(piston - removed @ (removed.T @ piston)) > 1e-8 * np.sqrt(self.n_actuators):
+                raise ValueError(
+                    "Kolmogorov turbulence (outer_scale=inf) has infinite piston variance; "
+                    "pass ignore_piston=True."
+                )
 
         if n_modes == 0:
             self.eigenvalues = np.array([], dtype=float)
@@ -321,20 +380,19 @@ class KLBasisGenerator(BasisGenerator):
             cov = cov - u @ cu.T - cu @ u.T + u @ ((u.T @ cu) @ u.T)
             cov = 0.5 * (cov + cov.T)
 
-        eigenvalues, eigenvectors = cp.linalg.eigh(cov) if self.use_gpu else eigh(cov)
-        # Sort by decreasing variance. The removed modes are eigenvectors of
+        # Sorted by decreasing variance. The removed modes are eigenvectors of
         # P C P with eigenvalue ~0, so they sort last and are never chosen.
-        sorter = xp.argsort(eigenvalues)[::-1]
-        eigenvalues = eigenvalues[sorter]
         if self.use_gpu:
-            eigenvalues = cp.asnumpy(eigenvalues)
-        # Keep the whole degenerate cluster that mode n_modes - 1 belongs to.
-        n_vectors = _cluster_end(eigenvalues, n_modes - 1)
-        eigenvectors = eigenvectors[:, sorter[:n_vectors]]
-        if self.use_gpu:
-            eigenvectors = cp.asnumpy(eigenvectors)
+            eigenvalues, eigenvectors = cp.linalg.eigh(cov)
+            sorter = cp.argsort(eigenvalues)[::-1]
+            eigenvalues = cp.asnumpy(eigenvalues[sorter])
+            # Keep the whole degenerate cluster that mode n_modes - 1 belongs to.
+            n_vectors = _cluster_end(eigenvalues, n_modes - 1)
+            eigenvectors = cp.asnumpy(eigenvectors[:, sorter[:n_vectors]])
+        else:
+            eigenvalues, eigenvectors = _top_eigenpairs(cov, n_modes)
         modes = _canonical_eigenvectors(eigenvalues, eigenvectors, self.positions, n_modes)
-        eigenvalues = eigenvalues[:n_modes]
+        eigenvalues = eigenvalues[:n_modes] * (self.r0_wavelength / self.wavelength) ** 2
         if normalize is not None:
             # phase = a m = (a s)(m / s): dividing a mode by s scales its
             # coefficient variance by s^2.
