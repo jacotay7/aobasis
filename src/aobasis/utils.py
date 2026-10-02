@@ -1,6 +1,6 @@
 import numpy as np
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 import math
 
 
@@ -39,36 +39,153 @@ def positions_from_mask(mask: np.ndarray, pitch: float) -> np.ndarray:
     return np.column_stack((x, y)).astype(float)
 
 
-def make_circular_actuator_grid(telescope_diameter: float, grid_size: int) -> np.ndarray:
+def _apply_pupil_mask(
+    positions: np.ndarray,
+    telescope_diameter: float,
+    obscuration: float,
+    n_spiders: int,
+    spider_width: float,
+    spider_angle: float,
+) -> np.ndarray:
+    """Remove actuators behind the central obstruction and the spider arms."""
+    if not np.isscalar(obscuration) or not np.isfinite(obscuration) or not 0 <= obscuration < 1:
+        raise ValueError("obscuration must be in [0, 1).")
+    n_spiders = _validate_non_negative_integer(n_spiders, "n_spiders", minimum=0)
+    if not np.isscalar(spider_width) or not np.isfinite(spider_width) or spider_width < 0:
+        raise ValueError("spider_width must be a non-negative finite scalar.")
+    if not np.isscalar(spider_angle) or not np.isfinite(spider_angle):
+        raise ValueError("spider_angle must be a finite scalar.")
+    keep = np.hypot(positions[:, 0], positions[:, 1]) >= 0.5 * telescope_diameter * obscuration - 1e-12
+    for k in range(n_spiders if spider_width > 0 else 0):
+        angle = spider_angle + 2 * np.pi * k / n_spiders
+        along = positions[:, 0] * np.cos(angle) + positions[:, 1] * np.sin(angle)
+        across = -positions[:, 0] * np.sin(angle) + positions[:, 1] * np.cos(angle)
+        keep &= ~((along >= 0) & (np.abs(across) < 0.5 * spider_width))
+    if not keep.any():
+        raise ValueError("The obscuration and spiders remove every actuator.")
+    return positions[keep]
+
+
+def make_circular_actuator_grid(
+    telescope_diameter: float,
+    grid_size: Optional[int] = None,
+    *,
+    pitch: Optional[float] = None,
+    rim: bool = True,
+    obscuration: float = 0.0,
+    n_spiders: int = 0,
+    spider_width: float = 0.0,
+    spider_angle: float = 0.0,
+) -> np.ndarray:
     """Return actuator coordinates for a square grid clipped by the circular pupil.
 
-    The grid has ``grid_size`` actuators across the diameter, spanning
+    Give either ``grid_size`` (actuators across the diameter) or ``pitch``.
+
+    With ``grid_size`` and ``rim=True`` (the default) the grid spans
     ``[-D/2, D/2]`` on each axis, so the pitch is ``D / (grid_size - 1)`` and
-    the outermost actuators on the axes sit on the rim. Grid points outside
-    the circle of diameter ``D`` are dropped. ``grid_size=1`` gives a single
-    actuator at the centre; ``grid_size=2`` is rejected, because its four
-    corners all lie outside the circle.
+    the outermost actuators on the axes sit on the rim. ``grid_size=1`` gives
+    a single actuator at the centre; ``grid_size=2`` is rejected, because its
+    four corners all lie outside the circle. With ``rim=False`` the actuators
+    are centred in the cells of a ``grid_size``-across grid instead: the
+    pitch is ``D / grid_size`` and the outermost actuators sit half a pitch
+    inside the rim.
+
+    With ``pitch`` the grid has exactly that pitch and an actuator at the
+    centre, and every actuator within ``D / 2`` of the centre is kept.
+
+    Grid points outside the circle of diameter ``D`` are dropped.
+
+    Args:
+        telescope_diameter: Pupil diameter ``D``.
+        grid_size: Actuators across the diameter.
+        pitch: Actuator pitch, instead of ``grid_size``.
+        rim: With ``grid_size``, put the outermost actuators on the rim
+            (Fried geometry) rather than in cell centres.
+        obscuration: Central obstruction as a fraction of the diameter;
+            actuators closer to the centre than ``obscuration * D / 2`` are
+            removed.
+        n_spiders: Number of spider arms, radial from the centre, at angles
+            ``spider_angle + 2 pi k / n_spiders`` (radians from +x).
+        spider_width: Full width of each arm; actuators closer than half of
+            it to an arm are removed.
+        spider_angle: Angle of the first arm.
 
     Returns:
         ``(N, 2)`` array of ``(x, y)``, row-major from the ``(-D/2, -D/2)``
         corner.
     """
     telescope_diameter = _validate_positive_finite_scalar(telescope_diameter, "telescope_diameter")
-    grid_size = _validate_non_negative_integer(grid_size, "grid_size", minimum=1)
-    if grid_size == 1:
-        return np.zeros((1, 2))
-    if grid_size == 2:
-        raise ValueError("grid_size=2 puts every grid point outside the pupil; use 1 or >= 3.")
-
     pupil_radius = 0.5 * telescope_diameter
-    axis = np.linspace(-pupil_radius, pupil_radius, grid_size)
+    if (grid_size is None) == (pitch is None):
+        raise ValueError("Give exactly one of grid_size and pitch.")
+    if pitch is not None:
+        pitch = _validate_positive_finite_scalar(pitch, "pitch")
+        half = int(np.floor(pupil_radius / pitch + 1e-9))
+        axis = np.arange(-half, half + 1) * pitch
+    else:
+        grid_size = _validate_non_negative_integer(grid_size, "grid_size", minimum=1)
+        if rim:
+            if grid_size == 1:
+                axis = np.zeros(1)
+            elif grid_size == 2:
+                raise ValueError("grid_size=2 puts every grid point outside the pupil; use 1 or >= 3.")
+            else:
+                axis = np.linspace(-pupil_radius, pupil_radius, grid_size)
+        else:
+            axis = (np.arange(grid_size) - 0.5 * (grid_size - 1)) * (telescope_diameter / grid_size)
     xx, yy = np.meshgrid(axis, axis)
     coords = np.column_stack((xx.ravel(), yy.ravel()))
-    radius_sq = pupil_radius**2
-    # Small epsilon to include points exactly on the edge if needed
-    mask = np.sum(coords**2, axis=1) <= radius_sq * 1.0000001
-    positions = coords[mask]
-    return positions
+    # Small epsilon to include points exactly on the edge
+    positions = coords[np.sum(coords**2, axis=1) <= pupil_radius**2 * 1.0000001]
+    if positions.shape[0] == 0:
+        raise ValueError("No grid point falls inside the pupil.")
+    return _apply_pupil_mask(positions, telescope_diameter, obscuration, n_spiders, spider_width, spider_angle)
+
+
+def make_hexagonal_actuator_grid(
+    telescope_diameter: float,
+    pitch: float,
+    *,
+    obscuration: float = 0.0,
+    n_spiders: int = 0,
+    spider_width: float = 0.0,
+    spider_angle: float = 0.0,
+) -> np.ndarray:
+    """Return actuator coordinates on a hexagonal lattice clipped by the circular pupil.
+
+    One actuator sits at the centre, rows run along x and are
+    ``pitch * sqrt(3) / 2`` apart, and every actuator has six neighbours at
+    ``pitch``.
+
+    Args:
+        telescope_diameter: Pupil diameter ``D``.
+        pitch: Distance between neighbouring actuators.
+        obscuration: Central obstruction as a fraction of the diameter;
+            actuators closer to the centre than ``obscuration * D / 2`` are
+            removed.
+        n_spiders: Number of spider arms, radial from the centre, at angles
+            ``spider_angle + 2 pi k / n_spiders`` (radians from +x).
+        spider_width: Full width of each arm; actuators closer than half of
+            it to an arm are removed.
+        spider_angle: Angle of the first arm.
+
+    Returns:
+        ``(N, 2)`` array of ``(x, y)``, row by row from the bottom.
+    """
+    telescope_diameter = _validate_positive_finite_scalar(telescope_diameter, "telescope_diameter")
+    pitch = _validate_positive_finite_scalar(pitch, "pitch")
+    pupil_radius = 0.5 * telescope_diameter
+    row_step = pitch * np.sqrt(3.0) / 2.0
+    n_rows = int(np.floor(pupil_radius / row_step + 1e-9))
+    n_cols = int(np.floor(pupil_radius / pitch + 1e-9)) + 1
+    rows = []
+    for k in range(-n_rows, n_rows + 1):
+        x = (np.arange(-n_cols, n_cols + 1) + 0.5 * (k % 2)) * pitch
+        rows.append(np.column_stack((x, np.full_like(x, k * row_step))))
+    coords = np.vstack(rows)
+    positions = coords[np.sum(coords**2, axis=1) <= pupil_radius**2 * 1.0000001]
+    return _apply_pupil_mask(positions, telescope_diameter, obscuration, n_spiders, spider_width, spider_angle)
+
 
 def plot_basis_modes(
     modes: np.ndarray,
@@ -188,14 +305,25 @@ def plot_basis_modes(
     else:
         plt.show()
 
-def make_concentric_actuator_grid(telescope_diameter: float, n_rings: int, n_points_innermost: int = 6) -> np.ndarray:
+def make_concentric_actuator_grid(
+    telescope_diameter: float,
+    n_rings: int,
+    n_points_innermost: int = 6,
+    *,
+    obscuration: float = 0.0,
+    n_spiders: int = 0,
+    spider_width: float = 0.0,
+    spider_angle: float = 0.0,
+) -> np.ndarray:
     """
     Generate actuator positions in concentric rings.
-    
+
     Args:
         telescope_diameter: Diameter of the outermost ring.
         n_rings: Number of rings (excluding center).
         n_points_innermost: Number of points in the first ring. Subsequent rings have i * n_points_innermost points.
+        obscuration, n_spiders, spider_width, spider_angle: As for
+            :func:`make_circular_actuator_grid`.
     """
     telescope_diameter = _validate_positive_finite_scalar(telescope_diameter, "telescope_diameter")
     n_rings = _validate_non_negative_integer(n_rings, "n_rings", minimum=0)
@@ -204,7 +332,9 @@ def make_concentric_actuator_grid(telescope_diameter: float, n_rings: int, n_poi
     positions = [[0.0, 0.0]] # Central actuator
 
     if n_rings == 0:
-        return np.array(positions)
+        return _apply_pupil_mask(
+            np.array(positions), telescope_diameter, obscuration, n_spiders, spider_width, spider_angle
+        )
 
     radius_step = (telescope_diameter / 2) / n_rings
     
@@ -217,5 +347,7 @@ def make_concentric_actuator_grid(telescope_diameter: float, n_rings: int, n_poi
         y = radius * np.sin(angles)
         
         positions.extend(np.column_stack((x, y)))
-        
-    return np.array(positions)
+
+    return _apply_pupil_mask(
+        np.array(positions), telescope_diameter, obscuration, n_spiders, spider_width, spider_angle
+    )
