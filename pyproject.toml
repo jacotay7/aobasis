@@ -40,6 +40,11 @@ plot = [
 fits = [
     "astropy>=5.0",
 ]
+tutorials = [
+    "matplotlib>=3.5",
+    "astropy>=5.0",
+    "notebook",
+]
 dev = [
     "matplotlib>=3.5",
     "astropy>=5.0",
