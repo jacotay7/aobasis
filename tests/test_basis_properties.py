@@ -223,6 +223,15 @@ def test_importing_aobasis_does_not_import_matplotlib():
     assert out.stdout.strip() == "False"
 
 
+def test_importing_aobasis_does_not_import_cupy():
+    import subprocess
+    import sys
+
+    code = "import aobasis, sys; print('cupy' in sys.modules)"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "False"
+
+
 def test_plotting_without_matplotlib_names_the_extra(monkeypatch):
     import sys
 
