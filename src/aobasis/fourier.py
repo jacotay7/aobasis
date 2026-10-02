@@ -18,7 +18,6 @@ class FourierBasisGenerator(BasisGenerator):
         ignore_piston: bool = False,
         orthonormalize: bool = False,
         remove: RemoveSpec = None,
-        **kwargs,
     ) -> np.ndarray:
         """
         Generate real Fourier modes: cos/sin pairs of increasing spatial frequency.
