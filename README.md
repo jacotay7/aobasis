@@ -99,24 +99,26 @@ python examples/calibration.py
 
 `python examples/benchmark.py --grid-sizes 16 32 64 --n-modes 100 --gpu --markdown`. Each entry is the best of 3 runs of `generate(100)` (zonal fast: its full pattern set) on a square grid clipped by a 10 m pupil.
 
-Host: an 80-core Arm Neoverse-N1 server, using 4 cores (`OPENBLAS_NUM_THREADS=4`), and an NVIDIA RTX A400.
+Host: an 80-core Arm Neoverse-N1 server, using 4 cores (`OPENBLAS_NUM_THREADS=4`), with an NVIDIA RTX 4060 and an RTX A400 (select one with `CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=...`).
 
 | Basis (100 modes) | 16×16 (172 acts) | 32×32 (740 acts) | 64×64 (3096 acts) |
 |---|---|---|---|
 | **KL (CPU)** | 0.023 s | 0.158 s | 1.99 s |
-| **KL (GPU)** | 0.026 s | 0.161 s | 4.41 s |
+| **KL (GPU, RTX 4060)** | 0.019 s | 0.061 s | 1.04 s |
+| **KL (GPU, RTX A400)** | 0.026 s | 0.161 s | 4.41 s |
 | **Zernike** | 0.005 s | 0.011 s | 0.033 s |
 | **Fourier** | 0.006 s | 0.024 s | 0.081 s |
 | **Hadamard** | 0.001 s | 0.021 s | 0.142 s |
 | **Zonal** | <0.001 s | <0.001 s | 0.002 s |
 | **Zonal fast** (3-pitch spacing) | 0.005 s | 0.023 s | 0.120 s |
 
-Full bases (`--n-modes all`) on 3096 actuators take 6.3 s for KL, 4.3 s for Zernike, 7.1 s for Fourier and 3.0 s for Hadamard. That includes the rank check.
+Full bases (`--n-modes all`) on 3096 actuators take 6.4 s for KL on the CPU (2.9 s on the RTX 4060), 4.3 s for Zernike, 7.1 s for Fourier and 3.0 s for Hadamard. That includes the rank check.
 
 Some notes on these numbers:
 - KL costs O(N³). For a few modes the CPU uses a partial eigensolver, which is why 100 modes are faster than the full basis.
 - The covariance is evaluated once per distinct actuator separation.
-- The GPU path only pays off on GPUs with strong float64 throughput. The RTX A400 used here has little, and on such cards the CPU is as fast or faster.
+- KL works in float64, so GPU speed follows the card's float64 throughput. The RTX 4060 is about 2× faster than 4 CPU cores at 3096 actuators. The RTX A400, with far less float64 throughput, is slower than the CPU.
+- The GPU path always computes every eigenpair (CuPy has no partial eigensolver), so its advantage is largest for full bases.
 
 ## Development and testing
 
