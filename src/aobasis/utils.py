@@ -40,9 +40,25 @@ def positions_from_mask(mask: np.ndarray, pitch: float) -> np.ndarray:
 
 
 def make_circular_actuator_grid(telescope_diameter: float, grid_size: int) -> np.ndarray:
-    """Return actuator coordinates for a square grid clipped by the circular pupil."""
+    """Return actuator coordinates for a square grid clipped by the circular pupil.
+
+    The grid has ``grid_size`` actuators across the diameter, spanning
+    ``[-D/2, D/2]`` on each axis, so the pitch is ``D / (grid_size - 1)`` and
+    the outermost actuators on the axes sit on the rim. Grid points outside
+    the circle of diameter ``D`` are dropped. ``grid_size=1`` gives a single
+    actuator at the centre; ``grid_size=2`` is rejected, because its four
+    corners all lie outside the circle.
+
+    Returns:
+        ``(N, 2)`` array of ``(x, y)``, row-major from the ``(-D/2, -D/2)``
+        corner.
+    """
     telescope_diameter = _validate_positive_finite_scalar(telescope_diameter, "telescope_diameter")
     grid_size = _validate_non_negative_integer(grid_size, "grid_size", minimum=1)
+    if grid_size == 1:
+        return np.zeros((1, 2))
+    if grid_size == 2:
+        raise ValueError("grid_size=2 puts every grid point outside the pupil; use 1 or >= 3.")
 
     pupil_radius = 0.5 * telescope_diameter
     axis = np.linspace(-pupil_radius, pupil_radius, grid_size)

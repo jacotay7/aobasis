@@ -15,6 +15,8 @@ def _validate_positions_array(positions: np.ndarray) -> np.ndarray:
 
     if array.ndim != 2 or array.shape[1] != 2:
         raise ValueError("positions must have shape (n_actuators, 2).")
+    if array.shape[0] == 0:
+        raise ValueError("positions must contain at least one actuator.")
     if not np.all(np.isfinite(array)):
         raise ValueError("positions must contain only finite values.")
 
