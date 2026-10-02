@@ -140,37 +140,93 @@ def _cluster_end(eigenvalues: np.ndarray, start: int) -> int:
     return stop
 
 
+def _harmonic_functions(points: np.ndarray) -> np.ndarray:
+    """Low-order circular harmonics of the geometry, in a fixed order.
+
+    ``r^k cos(k theta)``, ``r^k sin(k theta)`` for k = 1..10, then
+    ``r^(k+2) cos``/``sin`` and the radial ``r^2``, ``r^4``, ``r^6``, with
+    ``(r, theta)`` about the centroid, ``r`` scaled to 1 at the farthest point.
+    """
+    centred = points - points.mean(axis=0)
+    scale = np.max(np.hypot(centred[:, 0], centred[:, 1]))
+    x, y = (centred / (scale if scale > 0 else 1.0)).T
+    r, theta = np.hypot(x, y), np.arctan2(y, x)
+    columns = []
+    for k in range(1, 11):
+        columns += [r**k * np.cos(k * theta), r**k * np.sin(k * theta)]
+    for k in range(1, 11):
+        columns += [r ** (k + 2) * np.cos(k * theta), r ** (k + 2) * np.sin(k * theta)]
+    columns += [r**2, r**4, r**6]
+    return np.column_stack(columns)
+
+
+def _cluster_rotation(
+    block: np.ndarray, candidates: np.ndarray, fallback: Callable[[int], np.ndarray]
+) -> np.ndarray:
+    """``d x d`` orthogonal matrix fixing the modes of one eigenvalue cluster.
+
+    ``block`` holds the cluster's orthonormal eigenvectors and
+    ``candidates`` the reference functions, in the same coordinates. The
+    candidate projecting most strongly on the cluster becomes the first mode
+    (with a positive projection on it), the next strongest independent one
+    the second, and so on; ties go to the earlier candidate.
+    ``fallback(d)`` supplies more references when the candidates run out.
+    """
+    d = block.shape[1]
+    chosen = []
+    basis = np.zeros((d, 0))
+    for refs, ordered in ((candidates, True), (fallback(d), False)):
+        projections = block.T @ refs
+        norms = np.linalg.norm(refs, axis=0)
+        strength = np.linalg.norm(projections, axis=0) / np.where(norms > 0, norms, 1.0)
+        order = (
+            np.lexsort((np.arange(refs.shape[1]), -np.round(strength, 6)))
+            if ordered
+            else np.arange(refs.shape[1])
+        )
+        for idx in order:
+            if len(chosen) == d or strength[idx] < 1e-6:
+                break
+            v = projections[:, idx]
+            residual = v - basis @ (basis.T @ v)
+            if np.linalg.norm(residual) > 1e-3 * np.linalg.norm(v):
+                chosen.append(v)
+                basis = np.column_stack([basis, residual / np.linalg.norm(residual)])
+        if len(chosen) == d:
+            break
+    q, r = np.linalg.qr(np.column_stack(chosen))
+    signs = np.sign(np.diag(r))
+    signs[signs == 0] = 1.0
+    return q * signs
+
+
 def _canonical_eigenvectors(
     eigenvalues: np.ndarray,
     vectors: np.ndarray,
-    positions: np.ndarray,
     n_keep: int,
-    references: Optional[Callable[[int], np.ndarray]] = None,
+    candidates: np.ndarray,
+    fallback: Callable[[int], np.ndarray],
 ) -> np.ndarray:
     """First ``n_keep`` eigenvectors, with fixed signs and rotations.
 
     ``eigenvalues`` are sorted in decreasing order and ``vectors`` holds at
     least every eigenvector of the clusters that the first ``n_keep`` touch,
     so a cluster cut by ``n_keep`` is fixed before it is truncated.
-    ``references(d)`` gives the ``d`` reference vectors in the coordinates
-    of ``vectors`` (by default :func:`_reference_vectors` of ``positions``).
 
-    Within a cluster of (near-)equal eigenvalues spanning ``V``, the modes
-    become the in-order orthonormalization of ``V V^T R`` for fixed reference
-    vectors ``R``, each with a positive projection on its reference. That
-    depends only on the eigenspace, so CPU, GPU and different LAPACKs give
-    the same modes. A cluster of one is just a sign choice.
+    Each cluster of (near-)equal eigenvalues is rotated by
+    :func:`_cluster_rotation`: its first mode is the projection of the
+    reference function (``candidates``, usually circular harmonics) that
+    projects most strongly on it, so tip lies along x and tilt along y, and
+    every mode has a positive projection on its reference. That depends only
+    on the eigenspace, so CPU, GPU and different LAPACKs give the same modes.
+    A cluster of one is just a sign choice.
     """
     vectors = np.array(vectors, dtype=float, copy=True)
     start = 0
     while start < n_keep:
         stop = min(_cluster_end(eigenvalues, start), vectors.shape[1])
         block = vectors[:, start:stop]
-        refs = (references or (lambda d: _reference_vectors(positions, d)))(stop - start)
-        q, r = np.linalg.qr(block @ (block.T @ refs))
-        signs = np.sign(np.diag(r))
-        signs[signs == 0] = 1.0
-        vectors[:, start:stop] = q * signs
+        vectors[:, start:stop] = block @ _cluster_rotation(block, candidates, fallback)
         start = stop
     return vectors[:, :n_keep]
 
@@ -337,9 +393,12 @@ class KLBasisGenerator(BasisGenerator):
         eigenvalues repeat (common on symmetric pupils). The modes follow a
         fixed convention, so the same geometry gives the same modes on CPU and
         GPU and across LAPACK builds: within each group of equal eigenvalues
-        (relative spread <= 1e-8) they are the in-order orthonormalization of
-        the projections of fixed pseudo-random functions of the actuator
-        positions, each with a positive projection on its function.
+        (relative spread <= 1e-8), the first mode is the projection of the
+        low-order circular harmonic (``r^k cos k theta``, ``r^k sin k theta``,
+        ``r^2``, ...) that projects most strongly on the group, the next
+        mode the next strongest, and each mode projects positively on its
+        harmonic. So the tip/tilt pair is x then y, positive towards +x and
+        +y, and astigmatism pairs follow ``cos 2 theta`` then ``sin 2 theta``.
 
         Args:
             n_modes: Number of modes, at most the number of actuators minus
@@ -406,7 +465,13 @@ class KLBasisGenerator(BasisGenerator):
             eigenvectors = cp.asnumpy(eigenvectors[:, sorter[:n_vectors]])
         else:
             eigenvalues, eigenvectors = _top_eigenpairs(cov, n_modes)
-        modes = _canonical_eigenvectors(eigenvalues, eigenvectors, self.positions, n_modes)
+        modes = _canonical_eigenvectors(
+            eigenvalues,
+            eigenvectors,
+            n_modes,
+            _harmonic_functions(self.positions),
+            lambda d: _reference_vectors(self.positions, d),
+        )
         eigenvalues = eigenvalues[:n_modes] * (self.r0_wavelength / self.wavelength) ** 2
         if normalize is not None:
             # phase = a m = (a s)(m / s): dividing a mode by s scales its

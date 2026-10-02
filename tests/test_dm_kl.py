@@ -105,3 +105,12 @@ def test_kolmogorov_normalize_and_bad_input(setup):
     assert np.allclose(gen.eigenvalues, values * scale**2)
     with pytest.raises(ValueError):
         DMKLBasisGenerator(act, points, influence[:, :-1])
+
+
+def test_dm_kl_tip_tilt_surfaces_align_with_axes(setup):
+    act, points, influence = setup
+    gen = DMKLBasisGenerator(act, points, influence)
+    gen.generate(4, ignore_piston=True)
+    surfaces = gen.surfaces
+    for k, axis in enumerate(points.T):
+        assert surfaces[:, k] @ axis / (np.linalg.norm(surfaces[:, k]) * np.linalg.norm(axis)) > 0.98
