@@ -24,6 +24,7 @@
 - **Richer save files and FITS (#30).** `save` also stores the generator's `parameters`, the `generate_options` of the last call, KL `eigenvalues` and the `aobasis_version`; `load` exposes them on the returned `ConcreteBasis` (older files still load). `save_fits`/`load_fits` write and read the same content as FITS through the new `fits` extra (astropy).
 - **Zernike options (#31).** `generate(..., ordering="ansi" | "fringe")` besides Noll; `ZernikeBasisGenerator(..., obscuration=ε)` gives annular Zernike polynomials orthonormal over the annulus (stable to radial order > 100, matching Mahajan's closed forms); `pupil_radius` defaults to the largest actuator radius.
 - **Geometry helpers (#32).** `make_hexagonal_actuator_grid(diameter, pitch)`; `make_circular_actuator_grid(..., pitch=)` as an alternative to `grid_size` and `rim=False` for cell-centred actuators; `obscuration=` and spider arms (`n_spiders`, `spider_width`, `spider_angle`) on all three grid helpers.
+- **Hadamard constructions and selection (#33).** `construction="smallest"` uses the smallest Sylvester-doubled Paley Hadamard matrix of order ≥ the actuator count (e.g. 104 instead of 128 for 97 actuators; exact, untruncated and orthogonal for the 88-, 276-, 740-, 1876- and 3096-actuator circular grids). `selection="balanced"` takes the most piston-free columns first, exactly zero-mean when such columns exist. New helpers `aobasis.hadamard.hadamard_matrix` and `smallest_hadamard_order`.
 
 ### Changed
 
