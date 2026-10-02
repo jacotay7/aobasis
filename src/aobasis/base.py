@@ -320,6 +320,14 @@ class BasisGenerator(ABC):
             }
         return cls._from_saved(filepath, positions, modes, basis_type, meta, eigenvalues)
 
+    def report(self):
+        """:func:`aobasis.basis_report` of the generated modes."""
+        if self.modes is None:
+            raise ValueError("No modes generated yet. Call generate() first.")
+        from .analysis import basis_report
+
+        return basis_report(self.modes)
+
     def plot(self, count: int = 6, outfile: Optional[Union[str, Path]] = None, **kwargs):
         """Plot the generated modes."""
         if self.modes is None:
