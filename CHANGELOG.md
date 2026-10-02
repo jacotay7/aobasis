@@ -8,6 +8,11 @@
 - **CuPy is imported lazily (#19).** `import aobasis` no longer imports CuPy or builds the GPU kernel; both happen the first time `KLBasisGenerator(..., use_gpu=True)` is created. `aobasis.kl.HAS_CUPY` and `aobasis.kl.cp` are gone; use `aobasis.kl._load_cupy()` if you need to know whether CuPy is available.
 - **GPU KL covariance accuracy (#15).** The CuPy `K_{5/6}` kernel switched to a six-term asymptotic expansion at z = 2, where it is only good to ~2e-3, and one of its coefficients was wrong. It now uses Temme's series and Steed's continued fraction (Numerical Recipes `bessik`), which match `scipy.special.kv` to ~1e-14, so `use_gpu=True` gives the same covariance as the CPU to ~1e-12 (it was off by up to 0.2%).
 - **Faster rank check (#18).** The rank-deficiency warning estimates the rank with a column-pivoted QR instead of an SVD (same tolerance as `np.linalg.matrix_rank`). Full-size Zernike and Hadamard bases on 3096 actuators build in 4.2 s and 3.1 s instead of 10.6 s and 7.4 s.
+- **`ignore_piston` removes piston (#14).** Zernike, Fourier and Hadamard modes with `ignore_piston=True` are now exactly zero-mean, with or without `orthonormalize`; before, only the piston column was dropped, and the sampled modes kept up to 36% of their RMS as piston. Hadamard entries are then no longer ±1. With piston removed, Zernike allows at most `n_actuators - 1` modes, like the other bases.
+
+### Added
+
+- **`remove=` on Zernike, Fourier, Hadamard and KL `generate()` (#27)** keeps given modes out of the basis: names (`"piston"`, `"tip"`, `"tilt"`, `"tiptilt"`), `(n_actuators, k)` arrays, or a list of them. Zernike and Hadamard skip candidates that lie inside the removed modes (tip and tilt for `"tiptilt"`), Fourier picks frequencies independent of them, and KL diagonalizes `P C P` with `P = I - U Uᵀ`. New helpers `aobasis.project_out(modes, subspace)` and `aobasis.removal_basis(positions, remove)`.
 
 ### Changed
 

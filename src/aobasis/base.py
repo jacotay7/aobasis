@@ -3,7 +3,7 @@ import warnings
 import numpy as np
 from scipy.linalg import qr
 from pathlib import Path
-from typing import Tuple, Optional, Union
+from typing import Callable, Optional, Sequence, Union
 from .utils import plot_basis_modes
 
 
@@ -46,9 +46,63 @@ class BasisGenerator(ABC):
 
         return n_modes
 
-    def _finish(self, modes: np.ndarray, orthonormalize: bool = False) -> np.ndarray:
-        """Store ``modes`` as float, optionally orthonormalized, warning if rank-deficient."""
+    def _removed_subspace(self, remove: "RemoveSpec" = None, ignore_piston: bool = False) -> np.ndarray:
+        """Orthonormal ``(n_actuators, k)`` basis of the modes to keep out of the basis."""
+        return removal_basis(self.positions, remove, ignore_piston=ignore_piston)
+
+    def _take_outside(
+        self,
+        candidates: Callable[[int, int], np.ndarray],
+        n_modes: int,
+        removed: np.ndarray,
+        n_available: Optional[int] = None,
+    ) -> np.ndarray:
+        """First ``n_modes`` candidates with ``removed`` projected out.
+
+        ``candidates(start, count)`` returns candidate columns ``start`` to
+        ``start + count - 1`` in order (fewer at the end of the supply).
+        Candidates lying (numerically) inside the removed subspace, such as
+        piston when piston is removed, are skipped.
+        """
+        if removed.shape[1] == 0:
+            return candidates(0, n_modes)
+        kept = []
+        start = 0
+        while sum(block.shape[1] for block in kept) < n_modes:
+            need = n_modes - sum(block.shape[1] for block in kept)
+            count = need + removed.shape[1]
+            if n_available is not None:
+                count = min(count, n_available - start)
+            if count <= 0:
+                break
+            block = np.asarray(candidates(start, count), dtype=float)
+            if block.shape[1] == 0:
+                break
+            start += block.shape[1]
+            projected = block - removed @ (removed.T @ block)
+            norms = np.linalg.norm(block, axis=0)
+            inside = np.linalg.norm(projected, axis=0) <= _INSIDE_TOL * np.where(norms > 0, norms, 1.0)
+            if inside.all():  # a whole block inside the removed modes: the supply is exhausted
+                break
+            kept.append(projected[:, ~inside][:, :need])
+        modes = np.hstack(kept) if kept else np.zeros((self.n_actuators, 0))
+        if modes.shape[1] < n_modes:
+            raise ValueError(
+                f"Only {modes.shape[1]} {self.__class__.__name__} modes lie outside the removed "
+                f"modes on these {self.n_actuators} actuators; requested {n_modes}."
+            )
+        return modes
+
+    def _finish(
+        self, modes: np.ndarray, orthonormalize: bool = False, removed: Optional[np.ndarray] = None
+    ) -> np.ndarray:
+        """Store ``modes`` as float, optionally orthonormalized, warning if rank-deficient.
+
+        ``removed`` (orthonormal columns) is projected out of the modes first.
+        """
         modes = np.asarray(modes, dtype=float)
+        if removed is not None and removed.shape[1]:
+            modes = modes - removed @ (removed.T @ modes)
         n_modes = modes.shape[1]
         if n_modes:
             rank = _numerical_rank(modes)
@@ -138,6 +192,95 @@ def _numerical_rank(modes: np.ndarray) -> int:
         return 0
     tol = diag[0] * max(modes.shape) * np.finfo(float).eps
     return int(np.count_nonzero(diag > tol))
+
+
+# A candidate whose residual outside the removed subspace is below this
+# fraction of its norm is taken to lie inside it.
+_INSIDE_TOL = 1e-8
+
+RemoveSpec = Union[None, str, np.ndarray, Sequence[Union[str, np.ndarray]]]
+
+
+def _named_modes(positions: np.ndarray, name: str) -> np.ndarray:
+    x, y = positions[:, 0], positions[:, 1]
+    columns = {
+        "piston": [np.ones_like(x)],
+        "tip": [x],
+        "tilt": [y],
+        "tiptilt": [x, y],
+    }
+    if name not in columns:
+        raise ValueError(f"Unknown mode name {name!r}; expected one of {sorted(columns)}.")
+    return np.column_stack(columns[name])
+
+
+def removal_basis(positions: np.ndarray, remove: RemoveSpec = None, ignore_piston: bool = False) -> np.ndarray:
+    """Orthonormal basis of the modes described by ``remove`` (and piston).
+
+    Args:
+        positions: ``(n_actuators, 2)`` actuator coordinates.
+        remove: ``None``; a name (``"piston"``, ``"tip"`` (x), ``"tilt"`` (y)
+            or ``"tiptilt"``); an array of shape ``(n_actuators,)`` or
+            ``(n_actuators, k)``; or a list of names and arrays.
+        ignore_piston: Include piston.
+
+    Returns:
+        ``(n_actuators, k)`` matrix with orthonormal columns spanning the
+        given modes; linearly dependent inputs are merged (``k`` is the rank).
+    """
+    positions = np.asarray(positions, dtype=float)
+    n_act = positions.shape[0]
+    items = []
+    if ignore_piston:
+        items.append("piston")
+    if remove is None:
+        pass
+    elif isinstance(remove, (str, np.ndarray)):
+        items.append(remove)
+    elif isinstance(remove, (list, tuple)):
+        items.extend(remove)
+    else:
+        raise ValueError("remove must be a mode name, an array, or a list of names and arrays.")
+
+    columns = []
+    for item in items:
+        if isinstance(item, str):
+            columns.append(_named_modes(positions, item))
+            continue
+        if not isinstance(item, np.ndarray):
+            raise ValueError("remove entries must be mode names or numpy arrays.")
+        array = np.asarray(item, dtype=float)
+        if array.ndim == 1:
+            array = array[:, None]
+        if array.ndim != 2 or array.shape[0] != n_act:
+            raise ValueError(f"remove arrays must have shape ({n_act},) or ({n_act}, k), got {item.shape}.")
+        if not np.all(np.isfinite(array)):
+            raise ValueError("remove arrays must contain only finite values.")
+        columns.append(array)
+
+    if not columns:
+        return np.zeros((n_act, 0))
+    stacked = np.hstack(columns)
+    q, r, _ = qr(stacked, mode="economic", pivoting=True)
+    diag = np.abs(np.diag(r))
+    if diag.size == 0 or diag[0] == 0:
+        return np.zeros((n_act, 0))
+    rank = int(np.count_nonzero(diag > diag[0] * max(stacked.shape) * 1e-12))
+    return q[:, :rank]
+
+
+def project_out(modes: np.ndarray, subspace: np.ndarray) -> np.ndarray:
+    """Remove from each column of ``modes`` its component in the span of ``subspace``.
+
+    ``subspace`` is ``(n_actuators,)`` or ``(n_actuators, k)``; its columns
+    need not be orthonormal. The result is orthogonal to every column of
+    ``subspace``.
+    """
+    modes = np.asarray(modes, dtype=float)
+    if modes.ndim != 2:
+        raise ValueError("modes must have shape (n_actuators, n_modes).")
+    basis = removal_basis(np.zeros((modes.shape[0], 2)), np.asarray(subspace, dtype=float))
+    return modes - basis @ (basis.T @ modes)
 
 
 def orthonormalize_modes(modes: np.ndarray) -> np.ndarray:
