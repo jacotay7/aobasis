@@ -11,7 +11,7 @@ A Python package for generating various modal basis sets for Adaptive Optics (AO
 - **Fourier Modes**: Sinusoidal basis sets; aliased frequencies are skipped, so each mode is independent of the ones before it. Near full size the raw matrix is ill-conditioned; `orthonormalize=True` gives an accurate orthonormal basis.
 - **Zonal Basis**: Single actuator pokes (Identity).
 - **Zonal Fast Basis**: Distance-constrained grouped actuator pokes for faster calibration sweeps.
-- **Hadamard Basis**: +/-1 patterns for calibration (a truncated Sylvester Hadamard matrix).
+- **Hadamard Basis**: +/-1 patterns for calibration: a truncated Sylvester matrix, or (`construction="smallest"`) the smallest Sylvester-doubled Paley matrix, which needs no truncation on many grids; `selection="balanced"` picks the most piston-free columns.
 - **Flexible Geometry**: Works with arbitrary actuator positions (defaulting to circular grids).
 - **Mode Removal**: `ignore_piston=True` makes every mode zero-mean, and `remove=` keeps other modes out of the basis (`"tiptilt"`, or any `(n_actuators, k)` array). Zernike, Fourier and Hadamard modes have them projected out; KL diagonalizes the covariance with them removed. `aobasis.project_out` and `aobasis.removal_basis` do the same for any matrix.
 - **Orthonormalization**: Zernike, Fourier and Hadamard modes sampled on a discrete grid are not orthogonal; `generate(..., orthonormalize=True)` Gram-Schmidts them in order (`aobasis.orthonormalize_modes` does the same for any matrix). A `RuntimeWarning` flags a rank-deficient basis.
