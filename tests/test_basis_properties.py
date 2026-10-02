@@ -275,3 +275,15 @@ def test_plotting_without_matplotlib_names_the_extra(monkeypatch):
 def test_generate_rejects_unknown_keywords(grid, make, call):
     with pytest.raises(TypeError):
         make(grid).generate(**call)
+
+
+def test_concrete_basis_generate_stores_modes_and_can_grow_again(grid, tmp_path):
+    gen = ZernikeBasisGenerator(grid, pupil_radius=5.0)
+    gen.generate(10)
+    gen.save(tmp_path / "zern")  # np.savez appends .npz
+    loaded = BasisGenerator.load(tmp_path / "zern")
+    assert loaded.generate(3).shape == (grid.shape[0], 3)
+    assert loaded.modes.shape == (grid.shape[0], 3)
+    assert np.allclose(loaded.generate(10), gen.modes)
+    with pytest.raises(ValueError):
+        loaded.generate(11)
