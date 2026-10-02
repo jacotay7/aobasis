@@ -6,7 +6,7 @@ import numpy as np
 from scipy.linalg import eigh
 
 from .base import BasisGenerator, RemoveSpec, _check_normalize, _validate_positions_array, mode_scales, removal_basis
-from .kl import KLBasisGenerator, _canonical_eigenvectors, _cluster_end, _reference_vectors
+from .kl import KLBasisGenerator, _canonical_eigenvectors, _cluster_end, _harmonic_functions, _reference_vectors
 
 
 class DMKLBasisGenerator(BasisGenerator):
@@ -161,13 +161,17 @@ class DMKLBasisGenerator(BasisGenerator):
         values, vectors = eigh(coeff_cov)
         values, vectors = values[::-1], vectors[:, ::-1]
         n_vectors = _cluster_end(values, n_modes - 1)
-        # Reference vectors of the actuator geometry, in whitened coordinates
-        # (M^T Delta R = S^(1/2) U^T R), so the convention depends only on
-        # each eigenspace of surfaces.
-        def references(d: int) -> np.ndarray:
+        # Reference functions in whitened coordinates. Harmonics are evaluated
+        # on the pupil, so a mode's coefficient on harmonic f is the pupil
+        # inner product of its surface with f, (IF M)^T f / n; the fallback
+        # pseudo-random functions of the actuator geometry are whitened as
+        # M^T Delta R = S^(1/2) U^T R.
+        candidates = whitened_if.T @ _harmonic_functions(self.points) / n_points
+
+        def fallback(d: int) -> np.ndarray:
             return (u.T @ _reference_vectors(self.positions, d)) * np.sqrt(s)[:, None]
 
-        vectors = _canonical_eigenvectors(values, vectors[:, :n_vectors], self.positions, n_modes, references)
+        vectors = _canonical_eigenvectors(values, vectors[:, :n_vectors], n_modes, candidates, fallback)
         modes = whiten @ vectors
         eigenvalues = values[:n_modes] * (turbulence.r0_wavelength / turbulence.wavelength) ** 2
         if normalize is not None:

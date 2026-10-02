@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from scipy.linalg import eigh as scipy_eigh
 
+import aobasis
 import aobasis.kl as kl_module
 from aobasis import KLBasisGenerator, make_circular_actuator_grid
 
@@ -76,3 +77,23 @@ def test_gpu_modes_match_cpu(grid, gpu):
     cpu = KLBasisGenerator(grid).generate(40, ignore_piston=True)
     on_gpu = KLBasisGenerator(grid, use_gpu=True).generate(40, ignore_piston=True)
     assert np.allclose(on_gpu, cpu, atol=1e-8)
+
+
+def _corr(a, b):
+    return a @ b / (np.linalg.norm(a) * np.linalg.norm(b))
+
+
+@pytest.mark.parametrize(
+    "positions",
+    [make_circular_actuator_grid(10.0, 20), aobasis.make_hexagonal_actuator_grid(10.0, 0.6)],
+    ids=["square", "hexagonal"],
+)
+def test_degenerate_pairs_align_with_circular_harmonics(positions):
+    modes = KLBasisGenerator(positions).generate(8, ignore_piston=True)
+    x, y = positions.T
+    assert _corr(modes[:, 0], x) > 0.98  # tip along +x
+    assert _corr(modes[:, 1], y) > 0.98  # tilt along +y
+    if positions.shape[0] == aobasis.make_hexagonal_actuator_grid(10.0, 0.6).shape[0]:
+        theta, r2 = np.arctan2(y, x), x**2 + y**2
+        assert _corr(modes[:, 2], r2 * np.cos(2 * theta)) > 0.95  # astigmatism pair: cos then sin
+        assert _corr(modes[:, 3], r2 * np.sin(2 * theta)) > 0.95
