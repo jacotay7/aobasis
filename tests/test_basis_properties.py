@@ -50,6 +50,44 @@ def test_zernike_modes_are_noll_normalized():
     assert np.allclose(astig[(np.abs(y) < 1e-9)], 0.0, atol=1e-9)
 
 
+def test_zernike_radial_is_stable_at_high_order():
+    # The explicit factorial sum gave R_48^0(1) = 3 and R_60^0(1) = 193587.
+    gen = ZernikeBasisGenerator(np.zeros((1, 2)), pupil_radius=1.0)
+    x, w = np.polynomial.legendre.leggauss(200)
+    rho, w = (x + 1) / 2, w / 2
+    for m in (0, 1, 7):
+        orders = np.arange(m, 120, 2)
+        radial = np.array([gen._zernike_radial(n, m, rho) for n in orders])
+        assert np.allclose([gen._zernike_radial(n, m, np.array([1.0]))[0] for n in orders], 1.0)
+        gram = (radial * w * rho) @ radial.T * 2 * (orders[:, None] + 1)
+        assert np.allclose(gram, np.eye(len(orders)), atol=1e-10)
+
+
+def test_zernike_radial_matches_explicit_formula_at_low_order():
+    from math import factorial
+
+    gen = ZernikeBasisGenerator(np.zeros((1, 2)), pupil_radius=1.0)
+    rho = np.linspace(0.0, 1.0, 11)
+    for n in range(12):
+        for m in range(n % 2, n + 1, 2):
+            expected = sum(
+                (-1) ** k * factorial(n - k)
+                / (factorial(k) * factorial((n + m) // 2 - k) * factorial((n - m) // 2 - k))
+                * rho ** (n - 2 * k)
+                for k in range((n - m) // 2 + 1)
+            )
+            assert np.allclose(gen._zernike_radial(n, m, rho), expected, atol=1e-12)
+
+
+def test_large_zernike_basis_stays_bounded():
+    positions = make_circular_actuator_grid(telescope_diameter=10.0, grid_size=50)
+    with warnings.catch_warnings():  # high orders genuinely alias on the grid
+        warnings.simplefilter("ignore", RuntimeWarning)
+        modes = ZernikeBasisGenerator(positions, pupil_radius=5.0).generate(1500)  # j <= 1500, so n <= 54
+    n_max = 54
+    assert np.abs(modes).max() <= np.sqrt(2 * (n_max + 1)) + 1e-9
+
+
 def test_zernike_warns_for_actuators_outside_pupil(grid):
     with pytest.warns(RuntimeWarning, match="outside pupil_radius"):
         modes = ZernikeBasisGenerator(grid, pupil_radius=2.0).generate(4)

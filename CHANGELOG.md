@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Zernike precision at high order (#13).** The radial polynomial is evaluated with the Jacobi three-term recurrence instead of the explicit factorial sum, which cancelled catastrophically from radial order ~46 (Noll j ≈ 1100) on. A full Zernike basis on a 64×64 grid had entries up to 3e13; modes are now accurate to ~1e-13 beyond n = 100.
+
 ### Changed
 
 - **CI and packaging (#25).** CI runs on Python 3.8–3.14, on aarch64 (`ubuntu-24.04-arm`) and without the `plot` extra, and on every pull request. The publish workflow runs the tests and checks that the release tag matches the package version. aobasis ships a `py.typed` marker. Plotting tests moved to `tests/test_plotting.py` and skip without matplotlib; GPU tests run whenever CuPy and a CUDA device are present.
