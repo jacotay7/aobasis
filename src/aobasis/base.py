@@ -161,7 +161,13 @@ class BasisGenerator(ABC):
         original generator is not rebuilt. Calling ``load`` on a specific
         generator class (e.g. ``KLBasisGenerator.load``) raises ``ValueError``
         if the file was saved by a different generator.
+
+        ``filepath`` may omit the ``.npz`` suffix that :meth:`save` (through
+        ``np.savez``) adds.
         """
+        filepath = Path(filepath)
+        if not filepath.exists() and filepath.suffix != ".npz" and filepath.with_name(filepath.name + ".npz").exists():
+            filepath = filepath.with_name(filepath.name + ".npz")
         with np.load(filepath) as data:
             positions = data['positions']
             modes = data['modes']
@@ -176,6 +182,7 @@ class BasisGenerator(ABC):
 
         instance = ConcreteBasis(positions)
         instance.modes = modes
+        instance.full_modes = modes
         instance.basis_type = basis_type
         return instance
 
@@ -304,12 +311,21 @@ def orthonormalize_modes(modes: np.ndarray) -> np.ndarray:
 
 
 class ConcreteBasis(BasisGenerator):
-    """Helper class for loading existing bases."""
+    """A basis loaded from disk (see :meth:`BasisGenerator.load`).
+
+    ``full_modes`` holds every saved mode; :meth:`generate` returns the first
+    ``n_modes`` of them and, like the other generators, stores them in
+    ``modes``.
+    """
 
     basis_type: Optional[str] = None
+    full_modes: Optional[np.ndarray] = None
 
     def generate(self, n_modes: int) -> np.ndarray:
-        if self.modes is None:
-            raise NotImplementedError("This is a loaded basis container.")
-        n_modes = self._validate_n_modes(n_modes, max_modes=self.modes.shape[1])
-        return self.modes[:, :n_modes]
+        if self.full_modes is None:
+            if self.modes is None:
+                raise NotImplementedError("This is a loaded basis container.")
+            self.full_modes = self.modes
+        n_modes = self._validate_n_modes(n_modes, max_modes=self.full_modes.shape[1])
+        self.modes = self.full_modes[:, :n_modes]
+        return self.modes

@@ -13,21 +13,17 @@ class ZonalBasisGenerator(BasisGenerator):
     
     def generate(self, n_modes: int) -> np.ndarray:
         """
-        Generate Zonal modes.
-        
+        Generate Zonal modes: the first ``n_modes`` columns of the identity.
+
         Args:
-            n_modes: Number of modes to generate. 
-                     If n_modes < n_actuators, returns the first n_modes actuators.
-                     If n_modes > n_actuators, raises ValueError (or we could pad with zeros, but that's weird).
+            n_modes: Number of modes, at most the number of actuators. Mode
+                ``k`` pokes actuator ``k``.
+
+        Raises:
+            ValueError: If ``n_modes`` exceeds the number of actuators.
         """
         n_modes = self._validate_n_modes(n_modes, max_modes=self.n_actuators)
-        if n_modes > self.n_actuators:
-            raise ValueError(f"Cannot generate {n_modes} zonal modes for {self.n_actuators} actuators.")
-            
-        # Identity matrix
-        full_basis = np.eye(self.n_actuators)
-        
-        self.modes = full_basis[:, :n_modes]
+        self.modes = np.eye(self.n_actuators)[:, :n_modes]
         return self.modes
 
 
