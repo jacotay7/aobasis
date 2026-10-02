@@ -17,6 +17,7 @@ A Python package for generating various modal basis sets for Adaptive Optics (AO
 - **Normalization**: `generate(..., normalize="rms" | "l2" | "peak" | "pv")` scales every mode to unit size after piston removal and orthonormalization (`aobasis.normalize_modes` does the same for any matrix). KL `eigenvalues` follow the normalization.
 - **Visualization**: Built-in plotting tools for quick inspection (`pip install aobasis[plot]` for matplotlib).
 - **Serialization**: Save and load basis sets to/from `.npz` files (`load` returns a `ConcreteBasis` with the original `basis_type`).
+- **Influence-function fitting**: `fit_to_influence_functions` turns modes sampled on the pupil into least-squares DM commands, with `gaussian_influence_functions` and `make_pupil_points` to build the inputs.
 - **Geometry helpers**: `make_circular_actuator_grid`, `make_concentric_actuator_grid`, and `positions_from_mask` for a boolean actuator map.
 
 ## Installation
@@ -137,6 +138,27 @@ exotic_gen.plot(count=min(12, exotic_modes.shape[1]), title_prefix="Zonal Fast E
 ```
 
 The returned matrix still has the standard `(n_actuators, n_modes)` layout, but each column is now a sparse binary pattern rather than a single-actuator poke. Every actuator appears in exactly one column of the full basis.
+
+## Fitting Modes onto Influence Functions
+
+Sampling a mode at the actuator positions treats the DM as a set of point values. To get commands whose DM *surface* matches a mode, evaluate the mode on pupil points (every generator accepts arbitrary points) and fit it onto the DM influence functions by least squares:
+
+```python
+from aobasis import (
+    ZernikeBasisGenerator, fit_to_influence_functions, gaussian_influence_functions,
+    make_circular_actuator_grid, make_pupil_points,
+)
+
+points = make_pupil_points(diameter=10.0, n_pixels=64)          # pupil pixel centres
+actuators = make_circular_actuator_grid(11.0, 22)               # one ring beyond the pupil
+influence = gaussian_influence_functions(actuators, points)     # or your measured IFs, (n_points, n_actuators)
+pupil_modes = ZernikeBasisGenerator(points, pupil_radius=5.0).generate(50, ignore_piston=True)
+commands, residual = fit_to_influence_functions(
+    pupil_modes, influence, orthonormalize=True, return_residual=True
+)
+```
+
+`commands` is the `(n_actuators, n_modes)` modal-to-command matrix, `residual` each mode's relative fitting error, and `orthonormalize=True` makes the DM surfaces orthonormal over the pupil. `rcond` and `regularization` control unseen or badly seen actuators.
 
 ## Performance
 
