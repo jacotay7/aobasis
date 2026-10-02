@@ -3,7 +3,7 @@ import warnings
 import numpy as np
 from scipy.special import kv, gamma
 from scipy.linalg import eigh
-from .base import BasisGenerator
+from .base import BasisGenerator, RemoveSpec
 
 # CuPy is optional and slow to import, so it is loaded on first GPU use.
 _CUPY_BACKEND = None  # (cupy module, K_{5/6} kernel) once loaded, False if unavailable
@@ -203,23 +203,33 @@ class KLBasisGenerator(BasisGenerator):
         return cov
 
     def generate(
-        self, n_modes: int, ignore_piston: bool = False, orthonormalize: bool = False, **kwargs
+        self,
+        n_modes: int,
+        ignore_piston: bool = False,
+        orthonormalize: bool = False,
+        remove: RemoveSpec = None,
+        **kwargs,
     ) -> np.ndarray:
         """
         Generate KL modes (orthonormal columns, decreasing variance).
 
         Args:
-            n_modes: Number of modes, at most the number of actuators (one
-                fewer with ``ignore_piston``).
+            n_modes: Number of modes, at most the number of actuators minus
+                the number of removed modes.
             ignore_piston: Diagonalize the piston-removed covariance
                 ``P C P`` (``P = I - 11^T/N``), so every mode has exactly zero
                 mean. Piston is not generally an exact KL mode, so this is not
                 the same as dropping the first mode.
             orthonormalize: Accepted for a uniform API; KL modes are already
                 orthonormal.
+            remove: Further modes to keep out of the basis, e.g. ``"tiptilt"``
+                (see :func:`aobasis.removal_basis`). As for piston, the
+                covariance is diagonalized with ``P = I - U U^T``, ``U`` an
+                orthonormal basis of the removed modes, so the KL modes are
+                those of the turbulence left after removing them.
         """
-        max_modes = self.n_actuators - (1 if ignore_piston else 0)
-        n_modes = self._validate_n_modes(n_modes, max_modes=max_modes)
+        removed = self._removed_subspace(remove, ignore_piston)
+        n_modes = self._validate_n_modes(n_modes, max_modes=self.n_actuators - removed.shape[1])
 
         if n_modes == 0:
             self.eigenvalues = np.array([], dtype=float)
@@ -229,14 +239,16 @@ class KLBasisGenerator(BasisGenerator):
         cov = self._von_karman_covariance()
         cp = _load_cupy()[0] if self.use_gpu else None
         xp = cp if self.use_gpu else np
-        if ignore_piston:
-            # P C P with P = I - 11^T/N, without forming P.
-            cov = cov - cov.mean(axis=0, keepdims=True)
-            cov = cov - cov.mean(axis=1, keepdims=True)
+        if removed.shape[1]:
+            # P C P with P = I - U U^T, without forming P.
+            u = xp.asarray(removed)
+            cu = cov @ u
+            cov = cov - u @ cu.T - cu @ u.T + u @ ((u.T @ cu) @ u.T)
+            cov = 0.5 * (cov + cov.T)
 
         eigenvalues, eigenvectors = cp.linalg.eigh(cov) if self.use_gpu else eigh(cov)
-        # Sort by decreasing variance. With the piston removed, piston is an
-        # eigenvector with eigenvalue ~0, so it sorts last and is never chosen.
+        # Sort by decreasing variance. The removed modes are eigenvectors of
+        # P C P with eigenvalue ~0, so they sort last and are never chosen.
         sorter = xp.argsort(eigenvalues)[::-1][:n_modes]
         eigenvalues = eigenvalues[sorter]
         eigenvectors = eigenvectors[:, sorter]

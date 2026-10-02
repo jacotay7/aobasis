@@ -2,7 +2,7 @@ import warnings
 
 import numpy as np
 from typing import Tuple
-from .base import BasisGenerator
+from .base import BasisGenerator, RemoveSpec
 
 class ZernikeBasisGenerator(BasisGenerator):
     """
@@ -45,7 +45,12 @@ class ZernikeBasisGenerator(BasisGenerator):
             return R * np.sin(abs(m) * theta)
 
     def generate(
-        self, n_modes: int, ignore_piston: bool = False, orthonormalize: bool = False, **kwargs
+        self,
+        n_modes: int,
+        ignore_piston: bool = False,
+        orthonormalize: bool = False,
+        remove: RemoveSpec = None,
+        **kwargs,
     ) -> np.ndarray:
         """
         Generate Noll-normalized Zernike modes in Noll order.
@@ -60,12 +65,20 @@ class ZernikeBasisGenerator(BasisGenerator):
         true radius (it is not clipped), with a warning.
 
         Args:
-            n_modes: Number of modes, at most the number of actuators.
-            ignore_piston: Start at j=2 instead of j=1.
+            n_modes: Number of modes, at most the number of actuators minus
+                the number of removed modes.
+            ignore_piston: Remove piston: j=1 is skipped and the mean is
+                subtracted from every other mode (sampled Zernikes are not
+                zero-mean on a discrete grid).
             orthonormalize: Gram-Schmidt the modes in order so they are
                 orthonormal on the actuator grid (the sampled Zernikes are not).
+            remove: Further modes to project out of every Zernike, e.g.
+                ``"tiptilt"`` or an ``(n_actuators, k)`` array (see
+                :func:`aobasis.removal_basis`). Zernikes that lie inside the
+                removed modes (tip and tilt for ``"tiptilt"``) are skipped.
         """
-        n_modes = self._validate_n_modes(n_modes, max_modes=self.n_actuators)
+        removed = self._removed_subspace(remove, ignore_piston)
+        n_modes = self._validate_n_modes(n_modes, max_modes=self.n_actuators - removed.shape[1])
         if n_modes == 0:
             self.modes = np.zeros((self.n_actuators, 0), dtype=float)
             return self.modes
@@ -83,14 +96,16 @@ class ZernikeBasisGenerator(BasisGenerator):
                 stacklevel=2,
             )
 
-        first_j = 2 if ignore_piston else 1
-        modes = []
-        for j in range(first_j, first_j + n_modes):
-            n, m = self._noll_to_nm(j)
-            norm = np.sqrt(n + 1) * (np.sqrt(2.0) if m != 0 else 1.0)
-            modes.append(norm * self._zernike(n, m, rho, theta))
+        def candidates(start: int, count: int) -> np.ndarray:
+            columns = []
+            for j in range(start + 1, start + count + 1):
+                n, m = self._noll_to_nm(j)
+                norm = np.sqrt(n + 1) * (np.sqrt(2.0) if m != 0 else 1.0)
+                columns.append(norm * self._zernike(n, m, rho, theta))
+            return np.column_stack(columns)
 
-        return self._finish(np.column_stack(modes), orthonormalize=orthonormalize)
+        modes = self._take_outside(candidates, n_modes, removed)
+        return self._finish(modes, orthonormalize=orthonormalize, removed=removed)
 
     @staticmethod
     def _noll_to_nm(j: int) -> Tuple[int, int]:

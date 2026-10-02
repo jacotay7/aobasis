@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.linalg import hadamard
-from .base import BasisGenerator
+from .base import BasisGenerator, RemoveSpec
 
 class HadamardBasisGenerator(BasisGenerator):
     """
@@ -9,7 +9,12 @@ class HadamardBasisGenerator(BasisGenerator):
     """
     
     def generate(
-        self, n_modes: int, ignore_piston: bool = False, orthonormalize: bool = False, **kwargs
+        self,
+        n_modes: int,
+        ignore_piston: bool = False,
+        orthonormalize: bool = False,
+        remove: RemoveSpec = None,
+        **kwargs,
     ) -> np.ndarray:
         """
         Generate Hadamard modes (float entries of +1/-1).
@@ -21,13 +26,18 @@ class HadamardBasisGenerator(BasisGenerator):
         are then no longer +/-1).
 
         Args:
-            n_modes: Number of modes, at most the number of actuators.
-            ignore_piston: Skip column 0, which is all ones.
+            n_modes: Number of modes, at most the number of actuators minus
+                the number of removed modes.
+            ignore_piston: Remove piston: column 0 (all ones) is skipped and
+                the mean is subtracted from the other columns, which are not
+                zero-mean once truncated. Entries are then no longer +/-1.
             orthonormalize: Gram-Schmidt the modes in order so they are
                 orthonormal on the actuator grid.
+            remove: Further modes to project out (see
+                :func:`aobasis.removal_basis`).
         """
-        max_modes = self.n_actuators - (1 if ignore_piston else 0)
-        n_modes = self._validate_n_modes(n_modes, max_modes=max_modes)
+        removed = self._removed_subspace(remove, ignore_piston)
+        n_modes = self._validate_n_modes(n_modes, max_modes=self.n_actuators - removed.shape[1])
         if n_modes == 0:
             self.modes = np.zeros((self.n_actuators, 0), dtype=float)
             return self.modes
@@ -35,9 +45,9 @@ class HadamardBasisGenerator(BasisGenerator):
         size = 1
         while size < self.n_actuators:
             size *= 2
+        H = hadamard(size)[: self.n_actuators].astype(float)
 
-        first = 1 if ignore_piston else 0
-        H = hadamard(size).astype(float)
-        return self._finish(
-            H[: self.n_actuators, first : first + n_modes], orthonormalize=orthonormalize
+        modes = self._take_outside(
+            lambda start, count: H[:, start : start + count], n_modes, removed, n_available=size
         )
+        return self._finish(modes, orthonormalize=orthonormalize, removed=removed)

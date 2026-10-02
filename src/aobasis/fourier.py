@@ -1,5 +1,5 @@
 import numpy as np
-from .base import BasisGenerator
+from .base import BasisGenerator, RemoveSpec, removal_basis
 
 class FourierBasisGenerator(BasisGenerator):
     """
@@ -13,7 +13,12 @@ class FourierBasisGenerator(BasisGenerator):
         self.pupil_diameter = pupil_diameter
 
     def generate(
-        self, n_modes: int, ignore_piston: bool = False, orthonormalize: bool = False, **kwargs
+        self,
+        n_modes: int,
+        ignore_piston: bool = False,
+        orthonormalize: bool = False,
+        remove: RemoveSpec = None,
+        **kwargs,
     ) -> np.ndarray:
         """
         Generate real Fourier modes: cos/sin pairs of increasing spatial frequency.
@@ -25,17 +30,23 @@ class FourierBasisGenerator(BasisGenerator):
         of the modes already chosen is skipped, so the result has full rank.
 
         Args:
-            n_modes: Number of modes, at most the number of actuators.
-            ignore_piston: Leave out the constant mode.
+            n_modes: Number of modes, at most the number of actuators minus
+                the number of removed modes.
+            ignore_piston: Remove piston: leave out the constant mode and
+                subtract the mean from every other mode (sampled sines and
+                cosines are not zero-mean on a discrete grid).
             orthonormalize: Gram-Schmidt the modes in order so they are
                 orthonormal on the actuator grid.
+            remove: Further modes to project out, e.g. ``"tiptilt"`` (see
+                :func:`aobasis.removal_basis`). Frequencies are chosen to be
+                independent of them.
 
         Raises:
             ValueError: If the grid supports fewer than ``n_modes``
                 independent Fourier modes.
         """
-        max_modes = self.n_actuators - (1 if ignore_piston else 0)
-        n_modes = self._validate_n_modes(n_modes, max_modes=max_modes)
+        removed = self._removed_subspace(remove, ignore_piston)
+        n_modes = self._validate_n_modes(n_modes, max_modes=self.n_actuators - removed.shape[1])
         if n_modes == 0:
             self.modes = np.zeros((self.n_actuators, 0), dtype=float)
             return self.modes
@@ -44,16 +55,22 @@ class FourierBasisGenerator(BasisGenerator):
         y = self.positions[:, 1]
         f0 = 1.0 / self.pupil_diameter
 
-        # q holds an orthonormal basis of the span so far (piston first, even
-        # when it is ignored, so the chosen modes are independent of it).
+        # q holds an orthonormal basis of the span so far: the removed modes
+        # and piston first (piston even when it is removed, so the chosen
+        # modes are independent of it), then each chosen mode.
         # Candidates have unit amplitude, so residuals are compared with the
         # norm of a unit-amplitude mode: sine terms that vanish on the grid
         # have a tiny norm and a relative test would accept them.
         threshold = self._DEPENDENCE_TOL * np.sqrt(self.n_actuators)
-        q = np.empty((self.n_actuators, n_modes + 1))
-        q[:, 0] = 1.0 / np.sqrt(self.n_actuators)
-        count = 1
-        chosen = [] if ignore_piston else [np.ones_like(x)]
+        seed = removal_basis(self.positions, removed, ignore_piston=True)
+        q = np.empty((self.n_actuators, n_modes + seed.shape[1]))
+        q[:, : seed.shape[1]] = seed
+        count = seed.shape[1]
+        piston = np.ones_like(x)
+        piston_removed = np.linalg.norm(piston - removed @ (removed.T @ piston)) <= 1e-8 * np.sqrt(
+            self.n_actuators
+        )
+        chosen = [] if piston_removed else [piston]
 
         def add_batch(candidates: list) -> None:
             nonlocal count
@@ -107,7 +124,7 @@ class FourierBasisGenerator(BasisGenerator):
                 f"of 1/pupil_diameter) exist on these {self.n_actuators} actuators; "
                 f"requested {n_modes}."
             )
-        return self._finish(np.column_stack(chosen), orthonormalize=orthonormalize)
+        return self._finish(np.column_stack(chosen), orthonormalize=orthonormalize, removed=removed)
 
     _BATCH = 32
     _DEPENDENCE_TOL = 1e-6
