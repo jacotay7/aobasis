@@ -12,6 +12,8 @@ from aobasis import (
     HadamardBasisGenerator,
     KLBasisGenerator,
     ZernikeBasisGenerator,
+    ZonalBasisGenerator,
+    ZonalFastBasisGenerator,
     make_circular_actuator_grid,
     orthonormalize_modes,
     positions_from_mask,
@@ -257,3 +259,19 @@ def test_plotting_without_matplotlib_names_the_extra(monkeypatch):
     monkeypatch.setitem(sys.modules, "matplotlib.pyplot", None)
     with pytest.raises(ImportError, match=r"aobasis\[plot\]"):
         plot_basis_modes(np.eye(3), np.zeros((3, 2)), count=1)
+
+
+@pytest.mark.parametrize(
+    "make, call",
+    [
+        (lambda p: ZernikeBasisGenerator(p, pupil_radius=5.0), {"n_modes": 5, "orthonormalise": True}),
+        (lambda p: FourierBasisGenerator(p, pupil_diameter=10.0), {"n_modes": 5, "ignore_pistons": True}),
+        (lambda p: HadamardBasisGenerator(p), {"n_modes": 5, "normalise": "rms"}),
+        (lambda p: KLBasisGenerator(p), {"n_modes": 5, "use_gpu": True}),
+        (lambda p: ZonalBasisGenerator(p), {"n_modes": 5, "ignore_piston": True}),
+        (lambda p: ZonalFastBasisGenerator(p, 1.0), {"orthonormalize": True}),
+    ],
+)
+def test_generate_rejects_unknown_keywords(grid, make, call):
+    with pytest.raises(TypeError):
+        make(grid).generate(**call)

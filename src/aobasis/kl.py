@@ -208,7 +208,6 @@ class KLBasisGenerator(BasisGenerator):
         ignore_piston: bool = False,
         orthonormalize: bool = False,
         remove: RemoveSpec = None,
-        **kwargs,
     ) -> np.ndarray:
         """
         Generate KL modes (orthonormal columns, decreasing variance).

@@ -122,10 +122,13 @@ class BasisGenerator(ABC):
     def generate(self, n_modes: int, **kwargs) -> np.ndarray:
         """
         Generate the basis modes.
-        
+
+        Each generator takes its own keyword options (``ignore_piston``,
+        ``orthonormalize``, ...) and rejects unknown ones with ``TypeError``.
+
         Args:
             n_modes: Number of modes to generate.
-            
+
         Returns:
             modes: (n_actuators, n_modes) matrix.
         """
@@ -303,7 +306,7 @@ class ConcreteBasis(BasisGenerator):
 
     basis_type: Optional[str] = None
 
-    def generate(self, n_modes: int, **kwargs) -> np.ndarray:
+    def generate(self, n_modes: int) -> np.ndarray:
         if self.modes is None:
             raise NotImplementedError("This is a loaded basis container.")
         n_modes = self._validate_n_modes(n_modes, max_modes=self.modes.shape[1])

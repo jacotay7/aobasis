@@ -14,7 +14,6 @@ class HadamardBasisGenerator(BasisGenerator):
         ignore_piston: bool = False,
         orthonormalize: bool = False,
         remove: RemoveSpec = None,
-        **kwargs,
     ) -> np.ndarray:
         """
         Generate Hadamard modes (float entries of +1/-1).

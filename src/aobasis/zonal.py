@@ -11,7 +11,7 @@ class ZonalBasisGenerator(BasisGenerator):
     Each mode corresponds to poking a single actuator.
     """
     
-    def generate(self, n_modes: int, **kwargs) -> np.ndarray:
+    def generate(self, n_modes: int) -> np.ndarray:
         """
         Generate Zonal modes.
         
@@ -189,7 +189,7 @@ class ZonalFastBasisGenerator(BasisGenerator):
         self.min_distance = float(min_distance)
         self.full_modes: Optional[np.ndarray] = None
 
-    def generate(self, n_modes: Optional[int] = None, **kwargs) -> np.ndarray:
+    def generate(self, n_modes: Optional[int] = None) -> np.ndarray:
         """
         Generate zonal-fast modes.
 

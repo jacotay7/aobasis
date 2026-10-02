@@ -50,7 +50,6 @@ class ZernikeBasisGenerator(BasisGenerator):
         ignore_piston: bool = False,
         orthonormalize: bool = False,
         remove: RemoveSpec = None,
-        **kwargs,
     ) -> np.ndarray:
         """
         Generate Noll-normalized Zernike modes in Noll order.
