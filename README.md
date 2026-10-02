@@ -7,7 +7,7 @@ A Python package for generating various modal basis sets for Adaptive Optics (AO
 - **Karhunen-Loève (KL) Modes**: Optimized for atmospheric turbulence (Von Kármán spectrum).
   - Optional GPU acceleration available for large systems (requires CuPy).
 - **Zernike Polynomials**: Standard optical aberration modes (Noll indexing and normalization).
-- **Fourier Modes**: Sinusoidal basis sets, always full rank on the actuator grid.
+- **Fourier Modes**: Sinusoidal basis sets; aliased frequencies are skipped, so each mode is independent of the ones before it. Near full size the raw matrix is ill-conditioned; `orthonormalize=True` gives an accurate orthonormal basis.
 - **Zonal Basis**: Single actuator pokes (Identity).
 - **Zonal Fast Basis**: Distance-constrained grouped actuator pokes for faster calibration sweeps.
 - **Hadamard Basis**: +/-1 patterns for calibration (a truncated Sylvester Hadamard matrix).

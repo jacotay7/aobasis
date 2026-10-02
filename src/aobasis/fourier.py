@@ -25,8 +25,17 @@ class FourierBasisGenerator(BasisGenerator):
         Frequencies are integer multiples of one cycle per ``pupil_diameter``,
         taken in order of increasing ``|k|``. On a discrete actuator grid,
         frequencies above Nyquist alias onto lower ones, and some sine terms
-        vanish on the grid. Any candidate that is (numerically) a combination
-        of the modes already chosen is skipped, so the result has full rank.
+        vanish on the grid. A candidate is kept only if its residual against
+        the modes already chosen is at least ``1e-6`` of a unit-amplitude
+        mode's norm, so every mode is independent of the ones before it.
+
+        That does not make the raw matrix well-conditioned: on a circular
+        pupil, sampled high frequencies are nearly combinations of lower ones,
+        and a basis close to ``n_actuators`` modes can be numerically
+        singular (a ``RuntimeWarning`` says so). ``orthonormalize=True``
+        always gives an accurate orthonormal basis with the same nested spans
+        (mode ``k`` spans what modes ``0..k`` span), because each mode's
+        Gram-Schmidt residual is bounded away from zero.
 
         Args:
             n_modes: Number of modes, at most the number of actuators minus
@@ -123,7 +132,13 @@ class FourierBasisGenerator(BasisGenerator):
                 f"of 1/pupil_diameter) exist on these {self.n_actuators} actuators; "
                 f"requested {n_modes}."
             )
-        return self._finish(np.column_stack(chosen), orthonormalize=orthonormalize, removed=removed)
+        return self._finish(
+            np.column_stack(chosen),
+            orthonormalize=orthonormalize,
+            removed=removed,
+            rank_hint=" Each Fourier mode is independent of the modes before it, so "
+            "orthonormalize=True gives an accurate orthonormal basis with the same nested spans.",
+        )
 
     _BATCH = 32
     _DEPENDENCE_TOL = 1e-6
