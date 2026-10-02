@@ -32,6 +32,7 @@
 - **Unknown `generate()` keywords raise `TypeError` (#17).** Every generator used to accept and silently ignore any keyword, so typos such as `orthonormalise=True` or unsupported options such as `ZonalFastBasisGenerator.generate(orthonormalize=True)` did nothing.
 - **Rank warning with `orthonormalize=True`.** The warning now flags modes that are numerically combinations of the modes before them (their orthonormalized versions would be rounding noise) instead of the rank of the raw matrix, so a well-defined orthonormalization of an ill-conditioned basis no longer warns.
 - **KL documentation (#24)** states the units: `eigenvalues` are rad² at `wavelength`; positions, `fried_parameter` and `outer_scale` share one length unit; modes are sampled at actuator positions, not fitted to influence functions.
+- **Zonal fast needs fewer modes and is faster (#34).** Actuators on any 2-D lattice (square, rectangular, hexagonal, oblique) get the fewest-colour sublattice colouring, compared with the DSATUR colouring, and the smaller wins: on a 32×32 grid, 8 instead of 9 modes at 2.5 pitch and 12 instead of 16 at 3.5 pitch. DSATUR uses a heap (same colourings, ~30× faster: 6000 actuators in 0.1 s). `generate(signs="random", seed=0)` gives random-sign pokes.
 
 ## 1.2.0
 

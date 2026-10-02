@@ -1,3 +1,4 @@
+import heapq
 from typing import List, Optional, Set
 
 import numpy as np
@@ -48,29 +49,32 @@ def _build_conflict_graph(positions: np.ndarray, min_distance: float) -> List[Se
 
 
 def _dsatur_coloring(adjacency: List[Set[int]]) -> np.ndarray:
+    """Greedy DSATUR colouring with a lazy max-heap, O((V + E) log V).
+
+    Picks the uncoloured vertex with the most distinct neighbour colours,
+    then the highest degree, then the lowest index, and gives it the
+    smallest colour its neighbours do not use.
+    """
     n_vertices = len(adjacency)
     colors = np.full(n_vertices, -1, dtype=int)
     neighbor_colors = [set() for _ in range(n_vertices)]
-    degrees = np.array([len(neighbors) for neighbors in adjacency], dtype=int)
+    degrees = [len(neighbors) for neighbors in adjacency]
+    heap = [(0, -degrees[v], v) for v in range(n_vertices)]
+    heapq.heapify(heap)
 
-    for _ in range(n_vertices):
-        uncolored = np.flatnonzero(colors < 0)
-        if uncolored.size == 0:
-            break
-
-        saturation = np.array([len(neighbor_colors[index]) for index in uncolored], dtype=int)
-        candidate_order = np.lexsort((-degrees[uncolored], -saturation))
-        vertex = int(uncolored[candidate_order[0]])
-
+    while heap:
+        neg_saturation, _, vertex = heapq.heappop(heap)
+        if colors[vertex] >= 0 or -neg_saturation != len(neighbor_colors[vertex]):
+            continue  # already coloured, or a stale entry
         used = neighbor_colors[vertex]
         color = 0
         while color in used:
             color += 1
-
         colors[vertex] = color
         for neighbor in adjacency[vertex]:
-            if colors[neighbor] < 0:
+            if colors[neighbor] < 0 and color not in neighbor_colors[neighbor]:
                 neighbor_colors[neighbor].add(color)
+                heapq.heappush(heap, (-len(neighbor_colors[neighbor]), -degrees[neighbor], neighbor))
 
     return colors
 
@@ -90,52 +94,88 @@ def _renumber_colors(colors: np.ndarray) -> np.ndarray:
     return renumbered
 
 
-def _infer_uniform_step(values: np.ndarray) -> Optional[float]:
-    if values.size < 2:
+def _detect_lattice(positions: np.ndarray, rtol: float = 1e-8):
+    """Basis ``B`` (2x2, columns) and integer coordinates if ``positions`` lie on a 2-D lattice.
+
+    The basis is the two shortest independent nearest-neighbour vectors,
+    Gauss-reduced; square, rectangular, hexagonal and oblique grids are all
+    found. Returns ``None`` for other layouts (or fewer than three
+    non-collinear actuators).
+    """
+    if positions.shape[0] < 3:
         return None
-
-    sorted_values = np.unique(np.sort(values))
-    diffs = np.diff(sorted_values)
-    diffs = diffs[diffs > 1e-12]
-    if diffs.size == 0:
+    distances, neighbours = cKDTree(positions).query(positions, k=min(9, positions.shape[0]))
+    vectors = (positions[neighbours[:, 1:]] - positions[:, None, :]).reshape(-1, 2)
+    lengths = np.hypot(vectors[:, 0], vectors[:, 1])
+    order = np.argsort(lengths, kind="stable")
+    v1 = vectors[order[0]]
+    scale = lengths[order[0]]
+    if scale <= 0:
         return None
-
-    step = float(diffs.min())
-    ratios = diffs / step
-    if not np.allclose(ratios, np.round(ratios), rtol=1e-8, atol=1e-8):
+    cross = np.abs(v1[0] * vectors[order, 1] - v1[1] * vectors[order, 0])
+    independent = np.flatnonzero(cross > 1e-6 * scale * lengths[order])
+    if independent.size == 0:
         return None
-
-    return step
-
-
-def _grid_modulo_coloring(positions: np.ndarray, min_distance: float) -> Optional[np.ndarray]:
-    if positions.shape[0] == 0:
-        return np.zeros(0, dtype=int)
-
-    step_x = _infer_uniform_step(positions[:, 0])
-    step_y = _infer_uniform_step(positions[:, 1])
-    if step_x is None or step_y is None:
+    v2 = vectors[order[independent[0]]]
+    # Gauss (Lagrange) reduction of (v1, v2).
+    for _ in range(64):
+        if v2 @ v2 < v1 @ v1:
+            v1, v2 = v2, v1
+        mu = np.rint((v1 @ v2) / (v1 @ v1))
+        if mu == 0:
+            break
+        v2 = v2 - mu * v1
+    basis = np.column_stack((v1, v2))
+    coords = np.linalg.solve(basis, (positions - positions[0]).T).T
+    integers = np.rint(coords)
+    if np.abs(coords - integers).max() > 1e3 * rtol + 1e-6:
         return None
-    if not np.isclose(step_x, step_y, rtol=1e-8, atol=1e-8):
+    return basis, integers.astype(np.int64)
+
+
+def _short_vectors(gram: np.ndarray, radius: float) -> np.ndarray:
+    """Nonzero integer vectors ``n`` with ``n^T gram n < radius^2``."""
+    inverse = np.linalg.inv(gram)
+    bounds = [int(np.ceil(radius * np.sqrt(inverse[i, i]))) for i in range(2)]
+    grid = np.array(
+        [(i, j) for i in range(-bounds[0], bounds[0] + 1) for j in range(-bounds[1], bounds[1] + 1)],
+        dtype=np.int64,
+    )
+    norms = np.einsum("ni,ij,nj->n", grid, gram, grid)
+    return grid[(norms < radius**2 * (1 - 1e-9)) & np.any(grid != 0, axis=1)]
+
+
+def _lattice_coloring(positions: np.ndarray, min_distance: float) -> Optional[np.ndarray]:
+    """Fewest-colour lattice colouring, or ``None`` if the layout is not a lattice.
+
+    Colours are the cosets of the sublattice ``L`` (Hermite normal form rows
+    ``(a, 0)``, ``(b, c)``, ``0 <= b < a``) of smallest index ``a c`` that has
+    no nonzero vector shorter than ``min_distance``, so same-colour actuators
+    are at least ``min_distance`` apart. A square grid needs at most the
+    ``ceil(min_distance / pitch)^2`` colours of a modulo colouring, and often
+    fewer (8 instead of 9 at 2.5 pitch).
+    """
+    found = _detect_lattice(positions)
+    if found is None:
         return None
-
-    step = float(step_x)
-    origin_x = float(np.min(positions[:, 0]))
-    origin_y = float(np.min(positions[:, 1]))
-
-    x_indices = np.rint((positions[:, 0] - origin_x) / step).astype(int)
-    y_indices = np.rint((positions[:, 1] - origin_y) / step).astype(int)
-
-    rebuilt_x = origin_x + step * x_indices
-    rebuilt_y = origin_y + step * y_indices
-    if not np.allclose(rebuilt_x, positions[:, 0], rtol=1e-8, atol=1e-8):
-        return None
-    if not np.allclose(rebuilt_y, positions[:, 1], rtol=1e-8, atol=1e-8):
-        return None
-
-    modulo = max(int(np.ceil(min_distance / step - 1e-12)), 1)
-    colors = np.mod(x_indices, modulo) + modulo * np.mod(y_indices, modulo)
-    return _renumber_colors(colors.astype(int, copy=False))
+    basis, coords = found
+    short = _short_vectors(basis.T @ basis, min_distance)
+    if short.size == 0:
+        return np.zeros(positions.shape[0], dtype=int)
+    index = 1
+    while True:
+        for a in range(1, index + 1):
+            if index % a:
+                continue
+            c = index // a
+            for b in range(a):
+                # n = (n0, n1) is in L iff n1 = k c and n0 - k b = 0 (mod a).
+                k, rem = np.divmod(short[:, 1], c)
+                if not np.any((rem == 0) & ((short[:, 0] - k * b) % a == 0)):
+                    k, j = np.divmod(coords[:, 1], c)
+                    i = (coords[:, 0] - k * b) % a
+                    return _renumber_colors(i + a * j)
+        index += 1
 
 
 def compute_zonal_fast_basis(positions: np.ndarray, min_distance: float) -> np.ndarray:
@@ -143,10 +183,11 @@ def compute_zonal_fast_basis(positions: np.ndarray, min_distance: float) -> np.n
     Compute a distance-constrained zonal basis.
 
     Each returned mode is a binary poke pattern. Actuators that are closer than
-    ``min_distance`` cannot appear in the same mode. For square-lattice actuator
-    layouts the basis uses a modulo coloring of the lattice. For non-grid
-    actuator layouts it falls back to greedy coloring of the actuator conflict
-    graph.
+    ``min_distance`` cannot appear in the same mode. The actuators are
+    coloured with a greedy DSATUR colouring of their conflict graph and, when
+    they lie on a 2-D lattice (square, hexagonal, ...), with the best
+    sublattice colouring as well; the colouring with fewer modes is used
+    (the lattice one on ties, for its regular patterns).
 
     Args:
         positions: ``(n_actuators, 2)`` array of actuator coordinates.
@@ -163,10 +204,10 @@ def compute_zonal_fast_basis(positions: np.ndarray, min_distance: float) -> np.n
     if positions.shape[0] == 0:
         return np.zeros((0, 0), dtype=float)
 
-    colors = _grid_modulo_coloring(positions, min_distance)
-    if colors is None:
-        adjacency = _build_conflict_graph(positions, min_distance)
-        colors = _dsatur_coloring(adjacency)
+    colors = _renumber_colors(_dsatur_coloring(_build_conflict_graph(positions, min_distance)))
+    lattice = _lattice_coloring(positions, min_distance)
+    if lattice is not None and lattice.max() <= colors.max():
+        colors = lattice
     n_modes = int(colors.max()) + 1
 
     basis = np.zeros((positions.shape[0], n_modes), dtype=float)
@@ -191,21 +232,36 @@ class ZonalFastBasisGenerator(BasisGenerator):
         self.min_distance = float(min_distance)
         self.full_modes: Optional[np.ndarray] = None
 
-    def generate(self, n_modes: Optional[int] = None, normalize: Optional[str] = None) -> np.ndarray:
+    def generate(
+        self,
+        n_modes: Optional[int] = None,
+        normalize: Optional[str] = None,
+        signs: str = "ones",
+        seed: Optional[int] = 0,
+    ) -> np.ndarray:
         """
         Generate zonal-fast modes.
 
         Args:
             n_modes: Number of grouped poke modes to return. If omitted, return
                 the full distance-constrained basis.
-            normalize: ``None`` (binary pokes), ``"rms"``, ``"l2"``,
+            normalize: ``None`` (unit pokes), ``"rms"``, ``"l2"``,
                 ``"peak"`` or ``"pv"`` (see :func:`aobasis.normalize_modes`).
+            signs: ``"ones"`` (every poke +1) or ``"random"`` (each poke +1
+                or -1 at random, which keeps the patterns zero-mean on
+                average and spreads the DM stroke).
+            seed: Seed for ``signs="random"``; the default makes the
+                patterns reproducible, ``None`` draws fresh ones.
 
         Returns:
-            ``(n_actuators, n_modes)`` matrix of binary grouped poke patterns.
+            ``(n_actuators, n_modes)`` matrix of grouped poke patterns.
         """
-        self._record_options(n_modes=n_modes, normalize=normalize)
+        self._record_options(n_modes=n_modes, normalize=normalize, signs=signs, seed=seed)
+        if signs not in ("ones", "random"):
+            raise ValueError(f"signs must be 'ones' or 'random', got {signs!r}.")
         full_basis = compute_zonal_fast_basis(self.positions, self.min_distance)
+        if signs == "random":
+            full_basis = full_basis * np.random.default_rng(seed).choice([-1.0, 1.0], size=(self.n_actuators, 1))
         self.full_modes = full_basis
 
         if n_modes is None:

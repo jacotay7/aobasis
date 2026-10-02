@@ -51,7 +51,7 @@ def test_resaving_a_loaded_basis_keeps_metadata(grid, tmp_path):
     again = BasisGenerator.load(tmp_path / "b.npz")
     assert again.basis_type == "ZonalFastBasisGenerator"
     assert again.parameters == {"min_distance": 2.0}
-    assert again.generate_options == {"n_modes": None, "normalize": None}
+    assert again.generate_options == {"n_modes": None, "normalize": None, "signs": "ones", "seed": 0}
     assert again.eigenvalues is None
 
 
