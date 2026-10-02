@@ -118,3 +118,8 @@ def test_generators_reject_requests_exceeding_available_degrees_of_freedom():
         FourierBasisGenerator(positions, pupil_diameter=5.0).generate(n_modes=-3)
     with pytest.raises(ValueError):
         HadamardBasisGenerator(positions).generate(n_modes=-3)
+
+
+def test_generators_reject_empty_positions():
+    with pytest.raises(ValueError, match="at least one actuator"):
+        ZonalBasisGenerator(np.zeros((0, 2)))

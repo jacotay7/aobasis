@@ -9,6 +9,7 @@
 - **GPU KL covariance accuracy (#15).** The CuPy `K_{5/6}` kernel switched to a six-term asymptotic expansion at z = 2, where it is only good to ~2e-3, and one of its coefficients was wrong. It now uses Temme's series and Steed's continued fraction (Numerical Recipes `bessik`), which match `scipy.special.kv` to ~1e-14, so `use_gpu=True` gives the same covariance as the CPU to ~1e-12 (it was off by up to 0.2%).
 - **Faster rank check (#18).** The rank-deficiency warning estimates the rank with a column-pivoted QR instead of an SVD (same tolerance as `np.linalg.matrix_rank`). Full-size Zernike and Hadamard bases on 3096 actuators build in 4.2 s and 3.1 s instead of 10.6 s and 7.4 s.
 - **`ignore_piston` removes piston (#14).** Zernike, Fourier and Hadamard modes with `ignore_piston=True` are now exactly zero-mean, with or without `orthonormalize`; before, only the piston column was dropped, and the sampled modes kept up to 36% of their RMS as piston. Hadamard entries are then no longer ±1. With piston removed, Zernike allows at most `n_actuators - 1` modes, like the other bases.
+- **Degenerate grids (#16).** `make_circular_actuator_grid(D, 1)` returns one actuator at the centre and `(D, 2)` raises; both used to return an empty array. Generators reject an empty `positions` array. The docstring states the pitch, `D / (grid_size - 1)`, with the outermost actuators on the rim.
 
 ### Added
 

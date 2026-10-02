@@ -1,3 +1,4 @@
+import pytest
 import numpy as np
 from aobasis.utils import make_circular_actuator_grid, make_concentric_actuator_grid
 
@@ -66,3 +67,18 @@ def test_make_concentric_actuator_grid_radius():
     radius = diameter / 2
     distances = np.linalg.norm(positions, axis=1)
     assert np.all(distances <= radius * 1.0000001)
+
+
+def test_make_circular_actuator_grid_small_sizes():
+    assert np.array_equal(make_circular_actuator_grid(10.0, 1), np.zeros((1, 2)))
+    with pytest.raises(ValueError, match="grid_size=2"):
+        make_circular_actuator_grid(10.0, 2)
+    three = make_circular_actuator_grid(10.0, 3)
+    assert three.shape == (5, 2)  # centre and the four rim points on the axes
+
+
+def test_make_circular_actuator_grid_pitch():
+    positions = make_circular_actuator_grid(10.0, 21)
+    xs = np.unique(np.round(positions[:, 0], 12))
+    assert np.allclose(np.diff(xs), 10.0 / 20)
+    assert np.isclose(np.abs(positions).max(), 5.0)
