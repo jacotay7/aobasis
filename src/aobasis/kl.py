@@ -8,75 +8,84 @@ from .base import BasisGenerator
 # CuPy is optional and slow to import, so it is loaded on first GPU use.
 _CUPY_BACKEND = None  # (cupy module, K_{5/6} kernel) once loaded, False if unavailable
 
-# Gamma values for the K_{5/6} series
-GAMMA_1_6 = 5.56631600178
-GAMMA_11_6 = 0.94065585824
-
-# K_{5/6} Bessel function, float64
+# K_{5/6}(z) for z > 0, float64, by Temme's series (z < 2) and Steed's
+# continued fraction (z >= 2) for K_mu, mu = 5/6 - 1 = -1/6, then one upward
+# recurrence step (Numerical Recipes, 2nd ed., section 6.7, bessik). Agrees
+# with scipy.special.kv to ~1e-14 relative for all z.
+_KV56_MU = 5.0 / 6.0 - 1.0
+_KV56_GAMPL = 1.0 / float(gamma(1.0 + _KV56_MU))
+_KV56_GAMMI = 1.0 / float(gamma(1.0 - _KV56_MU))
+_KV56_KERNEL_PREAMBLE = f'''
+const double KV_MU = {_KV56_MU!r};
+const double KV_GAMPL = {_KV56_GAMPL!r};
+const double KV_GAMMI = {_KV56_GAMMI!r};
+const double KV_GAM1 = {(_KV56_GAMMI - _KV56_GAMPL) / (2.0 * _KV56_MU)!r};
+const double KV_GAM2 = {(_KV56_GAMMI + _KV56_GAMPL) / 2.0!r};
+'''
 _KV56_KERNEL_SOURCE = '''
-        double v = 5.0 / 6.0;
-        double z_abs = fabs(z);
-        if (z_abs < 2.0) {
-            // Series approximation for small z
-            if (z_abs < 1e-12) {
-                K = 1.89718990814 * pow(z_abs, -5.0/6.0);
-                return;
-            }
-            
-            double half_z = 0.5 * z;
-            double half_z_sq = half_z * half_z;
-            double z_pow_v = pow(half_z, v);
-            double z_pow_neg_v = pow(half_z, -v);
-            
-            double sum_a = z_pow_v / gamma_11_6;
-            double sum_b = z_pow_neg_v / gamma_1_6;
-            double term_a = sum_a;
-            double term_b = sum_b;
-            
-            double prev_sum_a = 0.0;
-            double prev_sum_b = 0.0;
-            int k = 1;
-            double tol = 1e-15;
-            
-            for (int i = 0; i < 100; ++i) {
-                double k_plus_v = k + v;
-                double k_minus_v = k - v;
-                
-                double factor_a = half_z_sq / (k * k_plus_v);
-                double factor_b = half_z_sq / (k * k_minus_v);
-                
-                term_a *= factor_a;
-                term_b *= factor_b;
-                sum_a += term_a;
-                sum_b += term_b;
-                
-                if ((i & 1) == 1) {
-                    double rel_change_a = fabs(sum_a - prev_sum_a) / fabs(sum_a);
-                    double rel_change_b = fabs(sum_b - prev_sum_b) / fabs(sum_b);
-                    
-                    if (rel_change_a < tol && rel_change_b < tol) {
-                        break;
-                    }
-                    prev_sum_a = sum_a;
-                    prev_sum_b = sum_b;
-                }
-                k += 1;
-            }
-            K = M_PI * (sum_b - sum_a);
-        } else {
-            // Asymptotic approximation for larger z
-            double z_inv = 1.0 / z;
-            
-            double sum_terms = 1.0 + z_inv * (2.0/9.0 + z_inv * (
-                        -7.0/81.0 + z_inv * (175.0/2187.0 + z_inv * (
-                            -2275.0/19683.0 + z_inv * 5005.0/177147.0
-                        )))); 
-            
-            double sqrt_term = sqrt(M_PI / (2.0 * z));
-            double exp_term = exp(-z);
-            K = sqrt_term * exp_term * sum_terms;
-        }
-        '''
+const double EPS = 1e-16;
+const double mu2 = KV_MU * KV_MU;
+if (!(z > 0.0)) {  // only reached for r = 0, which the caller overwrites
+    K = 0.0;
+    return;
+}
+double xi = 1.0 / z;
+double rk1;
+if (z < 2.0) {
+    double x2 = 0.5 * z;
+    double pimu = M_PI * KV_MU;
+    double fact = pimu / sin(pimu);
+    double d = -log(x2);
+    double e = KV_MU * d;
+    double fact2 = fabs(e) > EPS ? sinh(e) / e : 1.0;
+    double ff = fact * (KV_GAM1 * cosh(e) + KV_GAM2 * fact2 * d);
+    double sum = ff;
+    e = exp(e);
+    double p = 0.5 * e / KV_GAMPL;
+    double q = 0.5 / (e * KV_GAMMI);
+    double c = 1.0;
+    d = x2 * x2;
+    double sum1 = p;
+    for (int i = 1; i < 500; ++i) {
+        ff = (i * ff + p + q) / (i * i - mu2);
+        c *= d / i;
+        p /= (i - KV_MU);
+        q /= (i + KV_MU);
+        double del = c * ff;
+        sum += del;
+        sum1 += c * (p - i * ff);
+        if (fabs(del) < fabs(sum) * EPS) break;
+    }
+    rk1 = sum1 * 2.0 * xi;
+} else {
+    double b = 2.0 * (1.0 + z);
+    double d = 1.0 / b;
+    double h = d, delh = d;
+    double q1 = 0.0, q2 = 1.0;
+    double a1 = 0.25 - mu2;
+    double q = a1, c = a1, a = -a1;
+    double s = 1.0 + q * delh;
+    for (int i = 2; i < 500; ++i) {
+        a -= 2 * (i - 1);
+        c = -a * c / i;
+        double qnew = (q1 - b * q2) / a;
+        q1 = q2;
+        q2 = qnew;
+        q += c * qnew;
+        b += 2.0;
+        d = 1.0 / (b + a * d);
+        delh = (b * d - 1.0) * delh;
+        h += delh;
+        double dels = q * delh;
+        s += dels;
+        if (fabs(dels / s) < EPS) break;
+    }
+    h = a1 * h;
+    double rkmu = sqrt(M_PI / (2.0 * z)) * exp(-z) / s;
+    rk1 = rkmu * (KV_MU + z + 0.5 - h) * xi;
+}
+K = rk1;  // K_{mu + 1} = K_{5/6}
+'''
 
 
 def _load_cupy():
@@ -93,10 +102,7 @@ def _load_cupy():
                 'float64 K',
                 _KV56_KERNEL_SOURCE,
                 name='kv56_kernel_float64',
-                preamble=f'''
-                const double gamma_1_6 = {GAMMA_1_6};
-                const double gamma_11_6 = {GAMMA_11_6};
-                ''',
+                preamble=_KV56_KERNEL_PREAMBLE,
             )
             _CUPY_BACKEND = (cupy, kernel)
     return _CUPY_BACKEND or None
