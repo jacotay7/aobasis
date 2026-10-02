@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import warnings
 import numpy as np
+from scipy.linalg import qr
 from pathlib import Path
 from typing import Tuple, Optional, Union
 from .utils import plot_basis_modes
@@ -50,7 +51,7 @@ class BasisGenerator(ABC):
         modes = np.asarray(modes, dtype=float)
         n_modes = modes.shape[1]
         if n_modes:
-            rank = int(np.linalg.matrix_rank(modes))
+            rank = _numerical_rank(modes)
             if rank < n_modes:
                 warnings.warn(
                     f"{self.__class__.__name__}: {n_modes} modes have rank {rank} on "
@@ -124,6 +125,20 @@ class BasisGenerator(ABC):
         if self.modes is None:
             raise ValueError("No modes to plot.")
         plot_basis_modes(self.modes, self.positions, count=count, outfile=outfile, **kwargs)
+
+def _numerical_rank(modes: np.ndarray) -> int:
+    """Rank from a column-pivoted QR, with ``np.linalg.matrix_rank``'s tolerance.
+
+    Several times cheaper than the SVD that ``matrix_rank`` uses, and
+    rank-revealing in practice.
+    """
+    r = qr(modes, mode="r", pivoting=True, check_finite=False)[0]
+    diag = np.abs(np.diag(r))
+    if diag.size == 0 or diag[0] == 0:
+        return 0
+    tol = diag[0] * max(modes.shape) * np.finfo(float).eps
+    return int(np.count_nonzero(diag > tol))
+
 
 def orthonormalize_modes(modes: np.ndarray) -> np.ndarray:
     """Gram-Schmidt the columns of ``modes`` in order (QR), keeping each sign.

@@ -197,6 +197,22 @@ def test_load_keeps_basis_type_and_checks_class(grid, tmp_path):
     assert BasisGenerator.load(tmp_path / "again.npz").basis_type == "HadamardBasisGenerator"
 
 
+def test_numerical_rank_matches_matrix_rank():
+    from aobasis.base import _numerical_rank
+
+    rng = np.random.default_rng(0)
+    a = rng.standard_normal((200, 50))
+    dependent = np.hstack([a, a[:, :5] @ rng.standard_normal((5, 10))])
+    nearly = np.hstack([a, a[:, :1] + 1e-10 * rng.standard_normal((200, 1))])
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        zernike = ZernikeBasisGenerator(
+            make_circular_actuator_grid(10.0, 12), pupil_radius=5.0
+        ).generate(88)  # rank 79: high orders alias on the grid
+    for m in (a, dependent, nearly, zernike, np.zeros((5, 3)), np.ones((5, 3))):
+        assert _numerical_rank(m) == np.linalg.matrix_rank(m)
+
+
 def test_orthonormalize_modes_handles_empty():
     assert orthonormalize_modes(np.zeros((5, 0))).shape == (5, 0)
 
