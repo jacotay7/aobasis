@@ -15,7 +15,16 @@ from .base import (
 )
 from .kl import KLBasisGenerator
 from .dm_kl import DMKLBasisGenerator
-from .zernike import ZernikeBasisGenerator
+from .zernike import (
+    ZernikeBasisGenerator,
+    ansi_to_nm,
+    fringe_to_nm,
+    nm_to_ansi,
+    nm_to_fringe,
+    nm_to_noll,
+    noll_to_nm,
+    zernike_modes_on_mask,
+)
 from .fourier import FourierBasisGenerator
 from .zonal import ZonalBasisGenerator, ZonalFastBasisGenerator
 from .hadamard import HadamardBasisGenerator
@@ -40,6 +49,13 @@ __all__ = [
     "KLBasisGenerator",
     "DMKLBasisGenerator",
     "ZernikeBasisGenerator",
+    "zernike_modes_on_mask",
+    "noll_to_nm",
+    "nm_to_noll",
+    "ansi_to_nm",
+    "nm_to_ansi",
+    "fringe_to_nm",
+    "nm_to_fringe",
     "FourierBasisGenerator",
     "ZonalBasisGenerator",
     "ZonalFastBasisGenerator",

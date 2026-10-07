@@ -1,7 +1,16 @@
 # Changelog
 
-## Unreleased
+## [2.1.0] - 2026-10-07
 
+### Added
+
+- **Public Zernike index helpers.** `noll_to_nm(j)` and its inverse `nm_to_noll(n, m)`, with `ansi_to_nm`/`nm_to_ansi` and `fringe_to_nm`/`nm_to_fringe` for the other orderings `generate()` supports. They use the generator's sign convention (`m > 0` is the cosine term: Noll 2 = (1, 1) is tip along +x, Noll 3 = (1, -1) tilt along +y), take integers or integer arrays, and are exported from the top level. `ZernikeBasisGenerator._noll_to_nm` and the other private methods now call them.
+- **`check_rank=False` on Zernike, Fourier and Hadamard `generate()`** skips the linear-dependence check and its warning; the modes are identical. The check is a column-pivoted QR of the modes: 200 Zernike modes on a 205,892-pixel pupil take 2.2 s without it instead of 5.6-6.9 s. The default (`True`) is unchanged.
+- **`zernike_modes_on_mask(mask, n_modes, pupil_radius=..., obscuration=..., **options)`** evaluates Zernikes on the pixels of a 2-D mask (pixel centres as in `positions_from_mask`) and returns `(n_modes, ny, nx)` images, zero outside the mask. Other keywords go to `generate()`.
+
+### Changed
+
+- Tutorial 03 shows the orderings with the public index helpers.
 - Tests: `tests/test_conformance.py` checks the Zernike basis against the AO
   stack's shared contract (aocore CONVENTIONS.md 5.1-5.2): Noll order, unit
   RMS and tip along +x. `aocore` joins the `dev` extra on Python 3.10 and
