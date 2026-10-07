@@ -107,16 +107,16 @@ Host: an 80-core Arm Neoverse-N1 server, using 4 cores (`OPENBLAS_NUM_THREADS=4`
 
 | Basis (100 modes) | 16×16 (172 acts) | 32×32 (740 acts) | 64×64 (3096 acts) |
 |---|---|---|---|
-| **KL (CPU)** | 0.023 s | 0.158 s | 1.99 s |
-| **KL (GPU, RTX 4060)** | 0.019 s | 0.061 s | 1.04 s |
-| **KL (GPU, RTX A400)** | 0.026 s | 0.161 s | 4.41 s |
-| **Zernike** | 0.005 s | 0.011 s | 0.033 s |
-| **Fourier** | 0.006 s | 0.024 s | 0.081 s |
-| **Hadamard** | 0.001 s | 0.021 s | 0.142 s |
+| **KL (CPU)** | 0.015 s | 0.138 s | 1.79 s |
+| **KL (GPU, RTX 4060)** | 0.012 s | 0.045 s | 0.98 s |
+| **KL (GPU, RTX A400)** | 0.018 s | 0.145 s | 4.38 s |
+| **Zernike** | 0.003 s | 0.008 s | 0.027 s |
+| **Fourier** | 0.005 s | 0.019 s | 0.092 s |
+| **Hadamard** | 0.001 s | 0.022 s | 0.146 s |
 | **Zonal** | <0.001 s | <0.001 s | 0.002 s |
-| **Zonal fast** (3-pitch spacing) | 0.005 s | 0.023 s | 0.120 s |
+| **Zonal fast** (3-pitch spacing) | 0.005 s | 0.023 s | 0.122 s |
 
-Full bases (`--n-modes all`) on 3096 actuators take 6.4 s for KL on the CPU (2.9 s on the RTX 4060), 4.3 s for Zernike, 7.1 s for Fourier and 3.0 s for Hadamard. That includes the rank check, which `check_rank=False` skips.
+Full bases (`--n-modes all`) on 3096 actuators take 5.0 s for KL on the CPU (1.6 s on the RTX 4060), 3.3 s for Zernike, 6.9 s for Fourier and 2.9 s for Hadamard. That includes the rank check, which `check_rank=False` skips (a full Zernike basis then takes 0.5 s).
 
 Some notes on these numbers:
 - KL costs O(N³). For a few modes the CPU uses a partial eigensolver, which is why 100 modes are faster than the full basis.
