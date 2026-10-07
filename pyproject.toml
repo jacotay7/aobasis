@@ -51,6 +51,7 @@ dev = [
     "pytest",
     "pytest-cov",
     "imageio",
+    "aocore>=0.1.1; python_version >= '3.10'",
 ]
 
 [project.urls]

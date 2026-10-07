@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Tests: `tests/test_conformance.py` checks the Zernike basis against the AO
+  stack's shared contract (aocore CONVENTIONS.md 5.1-5.2): Noll order, unit
+  RMS and tip along +x. `aocore` joins the `dev` extra on Python 3.10 and
+  newer; the test skips on older versions.
+
 ## 2.0.0 (2026-10-01)
 
 A large release: correctness fixes across every basis, new bases and options (DM KL, influence-function fitting, annular Zernikes, Kolmogorov KL, Paley Hadamard, hexagonal grids), richer save files and FITS, and a full set of tutorials and example scripts.
