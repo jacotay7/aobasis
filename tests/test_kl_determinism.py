@@ -97,3 +97,47 @@ def test_degenerate_pairs_align_with_circular_harmonics(positions):
         theta, r2 = np.arctan2(y, x), x**2 + y**2
         assert _corr(modes[:, 2], r2 * np.cos(2 * theta)) > 0.95  # astigmatism pair: cos then sin
         assert _corr(modes[:, 3], r2 * np.sin(2 * theta)) > 0.95
+
+
+def test_covariance_matches_unique_with_inverse():
+    # The covariance looks distances up in their sorted unique values instead
+    # of np.unique(..., return_inverse=True); the matrix must be identical.
+    from scipy.spatial.distance import pdist, squareform
+
+    positions = np.vstack([make_circular_actuator_grid(10.0, 12), np.random.default_rng(1).uniform(-5, 5, (40, 2))])
+    gen = KLBasisGenerator(positions)
+    distances = pdist(positions)
+    unique, inverse = np.unique(distances, return_inverse=True)
+    expected = squareform(gen._covariance_of_distance(unique)[inverse.ravel()])
+    np.fill_diagonal(expected, gen._sigma2())
+    assert np.array_equal(gen._von_karman_covariance_cpu(), expected)
+
+
+def test_fallback_references_are_only_built_when_needed(grid):
+    calls = []
+
+    def fallback(d):
+        calls.append(d)
+        return kl_module._reference_vectors(grid, d)
+
+    values, vectors = scipy_eigh(KLBasisGenerator(grid)._von_karman_covariance())
+    candidates = kl_module._harmonic_functions(grid)
+    kl_module._canonical_eigenvectors(values[::-1], vectors[:, ::-1], 20, candidates, fallback)
+    assert calls == []  # the harmonics fix every cluster of a circular grid
+    # A cluster the candidates cannot fix asks for (and uses) the fallback.
+    block = np.linalg.qr(np.random.default_rng(0).standard_normal((len(grid), 2)))[0]
+    rotation = kl_module._cluster_rotation(block, np.zeros((len(grid), 1)), fallback)
+    assert calls == [2] and np.allclose(rotation.T @ rotation, np.eye(2))
+
+
+def test_single_mode_rotation_is_the_sign_of_its_projection(grid):
+    candidates = kl_module._harmonic_functions(grid)
+    rng = np.random.default_rng(2)
+    for _ in range(5):
+        block = rng.standard_normal((len(grid), 1))
+        projections = block.T @ candidates
+        strongest = np.argmax(np.linalg.norm(projections, axis=0) / np.linalg.norm(candidates, axis=0))
+        rotation = kl_module._cluster_rotation(block, candidates, lambda d: None)
+        assert rotation.shape == (1, 1) and rotation[0, 0] == np.sign(projections[0, strongest])
+        q, r = np.linalg.qr(projections[:, [strongest]])  # what the general path computes
+        assert rotation[0, 0] == (q * np.sign(np.diag(r)))[0, 0]
