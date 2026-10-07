@@ -22,6 +22,7 @@ class FourierBasisGenerator(BasisGenerator):
         orthonormalize: bool = False,
         remove: RemoveSpec = None,
         normalize: Optional[str] = None,
+        check_rank: bool = True,
     ) -> np.ndarray:
         """
         Generate real Fourier modes: cos/sin pairs of increasing spatial frequency.
@@ -57,6 +58,10 @@ class FourierBasisGenerator(BasisGenerator):
                 ``"peak"`` or ``"pv"`` after everything else (see
                 :func:`aobasis.normalize_modes`). ``None`` keeps the
                 generator's own scale.
+            check_rank: Warn if the modes are linearly dependent on the
+                actuators. ``False`` skips the check, which is a large part
+                of the cost for big bases (a column-pivoted QR of the modes);
+                the modes are identical either way.
 
         Raises:
             ValueError: If the grid supports fewer than ``n_modes``
@@ -154,6 +159,7 @@ class FourierBasisGenerator(BasisGenerator):
             orthonormalize=orthonormalize,
             removed=removed,
             normalize=normalize,
+            check_rank=check_rank,
             rank_hint=" Each Fourier mode is independent of the modes before it, so "
             "orthonormalize=True gives an accurate orthonormal basis with the same nested spans.",
         )

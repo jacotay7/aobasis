@@ -136,6 +136,7 @@ class HadamardBasisGenerator(BasisGenerator):
         normalize: Optional[str] = None,
         construction: str = "sylvester",
         selection: str = "first",
+        check_rank: bool = True,
     ) -> np.ndarray:
         """
         Generate Hadamard modes (float entries of +1/-1).
@@ -174,6 +175,10 @@ class HadamardBasisGenerator(BasisGenerator):
                 some conditioning for balance (the Sylvester order is already
                 about as well-conditioned as truncation allows);
                 ``construction="smallest"`` usually improves both.
+            check_rank: Warn if the modes are linearly dependent on the
+                actuators. ``False`` skips the check, which is a large part
+                of the cost for big bases (a column-pivoted QR of the modes);
+                the modes are identical either way.
         """
         self._record_options(
             n_modes=n_modes,
@@ -220,4 +225,6 @@ class HadamardBasisGenerator(BasisGenerator):
                 n_modes - int(keep_piston),
             )
             modes = np.hstack([H[:, :1], chosen]) if keep_piston else chosen
-        return self._finish(modes, orthonormalize=orthonormalize, removed=removed, normalize=normalize)
+        return self._finish(
+            modes, orthonormalize=orthonormalize, removed=removed, normalize=normalize, check_rank=check_rank
+        )

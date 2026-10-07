@@ -60,7 +60,11 @@ kl.save("kl_m2c.npz")                               # modes + parameters + optio
 - `orthonormalize=True` Gram-Schmidts the modes in order;
 - `normalize="rms" | "l2" | "peak" | "pv"` sets the scale.
 
-Unknown options raise `TypeError`.
+Unknown options raise `TypeError`. Zernike, Fourier and Hadamard warn when the modes are linearly dependent; `check_rank=False` skips that check, which is most of the cost of a large Zernike basis.
+
+**Zernike helpers.**
+- `noll_to_nm(j)` and `nm_to_noll(n, m)` convert between Noll indices and `(n, m)`, with `ansi_to_nm`/`nm_to_ansi` and `fringe_to_nm`/`nm_to_fringe` for the other orderings. `m > 0` is the cosine term, so Noll 2 = (1, 1) is tip along +x and Noll 3 = (1, -1) tilt along +y. They take integers or integer arrays.
+- `zernike_modes_on_mask(mask, n_modes, pupil_radius=...)` evaluates Zernikes on the pixels of a 2-D mask and returns `(n_modes, ny, nx)` images, zero outside the mask.
 
 **Geometry.**
 - `make_circular_actuator_grid` builds a square grid by `grid_size` or `pitch`, with actuators on the rim or in cell centres.
@@ -112,7 +116,7 @@ Host: an 80-core Arm Neoverse-N1 server, using 4 cores (`OPENBLAS_NUM_THREADS=4`
 | **Zonal** | <0.001 s | <0.001 s | 0.002 s |
 | **Zonal fast** (3-pitch spacing) | 0.005 s | 0.023 s | 0.120 s |
 
-Full bases (`--n-modes all`) on 3096 actuators take 6.4 s for KL on the CPU (2.9 s on the RTX 4060), 4.3 s for Zernike, 7.1 s for Fourier and 3.0 s for Hadamard. That includes the rank check.
+Full bases (`--n-modes all`) on 3096 actuators take 6.4 s for KL on the CPU (2.9 s on the RTX 4060), 4.3 s for Zernike, 7.1 s for Fourier and 3.0 s for Hadamard. That includes the rank check, which `check_rank=False` skips.
 
 Some notes on these numbers:
 - KL costs O(N³). For a few modes the CPU uses a partial eigensolver, which is why 100 modes are faster than the full basis.

@@ -126,6 +126,7 @@ class BasisGenerator(ABC):
         removed: Optional[np.ndarray] = None,
         rank_hint: str = "",
         normalize: Optional[str] = None,
+        check_rank: bool = True,
     ) -> np.ndarray:
         """Store ``modes`` as float, optionally orthonormalized, warning if rank-deficient.
 
@@ -135,6 +136,8 @@ class BasisGenerator(ABC):
         flags modes that are (numerically) combinations of the modes before
         them, whose orthonormalized versions would be rounding noise.
         ``normalize`` is applied last (see :func:`normalize_modes`).
+        ``check_rank=False`` skips both checks and their warnings; the modes
+        are the same.
         """
         _check_normalize(normalize)
         modes = np.asarray(modes, dtype=float)
@@ -143,7 +146,7 @@ class BasisGenerator(ABC):
         n_modes = modes.shape[1]
         name = self.__class__.__name__
         if n_modes and not orthonormalize:
-            rank = _numerical_rank(modes)
+            rank = _numerical_rank(modes) if check_rank else n_modes
             if rank < n_modes:
                 warnings.warn(
                     f"{name}: {n_modes} modes have rank {rank} on these {self.n_actuators} "
@@ -156,7 +159,7 @@ class BasisGenerator(ABC):
             norms = np.linalg.norm(modes, axis=0)
             residual = np.abs(np.diag(r))
             dependent = np.flatnonzero(residual <= _DEPENDENT_RTOL * np.where(norms > 0, norms, 1.0))
-            if dependent.size:
+            if check_rank and dependent.size:
                 warnings.warn(
                     f"{name}: {dependent.size} of {n_modes} modes on these {self.n_actuators} "
                     f"actuators are linearly dependent on the modes before them (first: mode "
