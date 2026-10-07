@@ -1,5 +1,29 @@
 # Changelog
 
+## [2.2.0] - 2026-10-07
+
+Faster KL and Zernike generation. Every mode, eigenvalue and warning is bit-for-bit the same as in 2.1.0 (checked on 471 bases: CPU and GPU KL, Kolmogorov, DM KL, circular and annular Zernikes in every ordering, with and without piston/tip-tilt removal and normalization). Timings on an 80-core Arm Neoverse-N1 pinned to 12 cores, with an RTX 4060:
+
+| | 2.1.0 | 2.2.0 | speed-up |
+|---|---:|---:|---:|
+| KL, 3096 actuators, 100 modes (CPU) | 1.43 s | 1.25 s | 1.15x |
+| KL, 3096 actuators, all modes (CPU) | 5.25 s | 3.88 s | 1.35x |
+| KL, 7668 actuators, 2000 modes (CPU) | 48.2 s | 41.4 s | 1.16x |
+| KL, 740 actuators, 100 modes (GPU) | 0.058 s | 0.046 s | 1.27x |
+| KL, 3096 actuators, all modes (GPU) | 2.81 s | 1.56 s | 1.81x |
+| Zernike, 3096 actuators, 100 modes | 0.034 s | 0.025 s | 1.36x |
+| Zernike, 3096 actuators, all modes | 3.22 s | 2.22 s | 1.45x |
+| Zernike, 3096 actuators, all modes, `check_rank=False` | 1.43 s | 0.50 s | 2.87x |
+
+### Changed
+
+- **KL mode canonicalization is cheaper.** The fallback reference functions are built only for the (rare) eigenvalue clusters the circular harmonics cannot fix, instead of for every cluster; the harmonics' norms are computed once; and a single-mode cluster takes the sign of its projection directly instead of through a 1×1 QR (which returns exactly that). This was most of the time of a full GPU KL basis.
+- **KL covariance: distinct separations are found by sorting the distances and looking each one up**, instead of `np.unique(..., return_inverse=True)`, which argsorts all `N²/2` of them (1.4-1.8x faster for that step; the same indices).
+- **The piston/mode-removal projection `P C P` of the KL covariance is done in place**, in the same order of operations, without extra `N × N` temporaries.
+- **Zernike radial polynomials resume their recurrence.** Within one `generate()` call, the Jacobi recurrence of each azimuthal order `m` continues from the previous radial order instead of starting over, and `cos(m θ)`/`sin(m θ)` are computed once per `m`. The steps, and therefore the values, are unchanged. Annular Zernikes keep their per-mode evaluation (their recurrence coefficients depend on how many are requested).
+- `README.md` performance table re-measured.
+- `AGENTS.md` (with `CLAUDE.md` pointing to it): layout, tests and gotchas for agents and contributors.
+
 ## [2.1.0] - 2026-10-07
 
 ### Added

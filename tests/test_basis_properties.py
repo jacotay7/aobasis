@@ -81,6 +81,18 @@ def test_zernike_radial_matches_explicit_formula_at_low_order():
             assert np.allclose(gen._zernike_radial(n, m, rho), expected, atol=1e-12)
 
 
+def test_zernike_radial_resumed_recurrence_is_bit_identical():
+    # generate() resumes each m's recurrence from the previous order; the
+    # values must equal a fresh evaluation exactly, in any request order.
+    gen = ZernikeBasisGenerator(np.zeros((1, 2)), pupil_radius=1.0)
+    rho = np.linspace(0.0, 1.0, 97)
+    state = {}
+    for n, m in [(0, 0), (2, 0), (4, 0), (1, 1), (3, 1), (40, 0), (41, 1), (6, 0), (8, 0), (7, 7), (9, 7)]:
+        fresh = gen._zernike_radial(n, m, rho)
+        assert np.array_equal(gen._zernike_radial(n, m, rho, state), fresh)
+        assert np.array_equal(gen._zernike_radial(n, m, rho, state), fresh)  # same order again
+
+
 def test_large_zernike_basis_stays_bounded():
     positions = make_circular_actuator_grid(telescope_diameter=10.0, grid_size=50)
     with warnings.catch_warnings():  # high orders genuinely alias on the grid
