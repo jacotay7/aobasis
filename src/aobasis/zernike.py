@@ -235,10 +235,14 @@ class ZernikeBasisGenerator(BasisGenerator):
         self._annular_cache[m] = (p0, alpha, beta)
         return self._annular_cache[m]
 
-    def _radial_function(self, n: int, m: int, rho: np.ndarray) -> np.ndarray:
-        """Unit-RMS radial part (Noll factor included), circular or annular."""
+    def _radial_function(self, n: int, m: int, rho: np.ndarray, state: Optional[dict] = None) -> np.ndarray:
+        """Unit-RMS radial part (Noll factor included), circular or annular.
+
+        ``state`` (a dict owned by the caller, for one ``rho``) lets the
+        circular recurrence resume from the last ``n`` of the same ``m``.
+        """
         if self.obscuration == 0:
-            return np.sqrt(n + 1) * self._zernike_radial(n, m, rho)
+            return np.sqrt(n + 1) * self._zernike_radial(n, m, rho, state)
         k_max = (n - m) // 2
         p0, alpha, beta = self._annular_recurrence(m, k_max + 1)
         t = np.asarray(rho, dtype=float) ** 2
@@ -247,25 +251,37 @@ class ZernikeBasisGenerator(BasisGenerator):
             p_prev, p = p, ((t - alpha[k]) * p - (beta[k - 1] if k else 0.0) * p_prev) / beta[k]
         return rho**m * p
 
-    def _zernike_radial(self, n: int, m: int, rho: np.ndarray) -> np.ndarray:
+    def _zernike_radial(self, n: int, m: int, rho: np.ndarray, state: Optional[dict] = None) -> np.ndarray:
         """Compute radial Zernike polynomial R_n^m(rho), m >= 0.
 
         Uses R_n^m(rho) = (-1)^k rho^m P_k^(m,0)(1 - 2 rho^2), k = (n - m) / 2,
         with the three-term Jacobi recurrence. The explicit factorial sum
         cancels catastrophically in float64 from n ~ 46 on.
+
+        With ``state`` (a dict for this ``rho``), the recurrence of order
+        ``m`` continues from the last ``P_k`` it reached instead of starting
+        over; the steps, and so the values, are the same. A full basis then
+        costs one recurrence per ``m`` instead of one per mode.
         """
         rho = np.asarray(rho, dtype=float)
         k_max = (n - m) // 2
         a = float(m)
-        x = 1.0 - 2.0 * rho**2
-        p_prev = np.ones_like(x)
-        p = p_prev if k_max == 0 else (a + 1.0) + (a + 2.0) * (x - 1.0) / 2.0
-        for k in range(2, k_max + 1):
+        saved = state.get(m) if state is not None else None
+        if saved is not None and saved[0] <= k_max:
+            k, p, p_prev, x = saved
+        else:
+            x = 1.0 - 2.0 * rho**2
+            k, p, p_prev = 0, np.ones_like(x), None
+        if k == 0 and k_max >= 1:
+            k, p, p_prev = 1, (a + 1.0) + (a + 2.0) * (x - 1.0) / 2.0, p
+        for k in range(k + 1, k_max + 1):
             c = 2 * k + a
             p, p_prev = (
                 (c - 1) * (c * (c - 2) * x + a * a) * p
                 - 2 * (k + a - 1) * (k - 1) * c * p_prev
             ) / (2 * k * (k + a) * (c - 2)), p
+        if state is not None:
+            state[m] = (k_max, p, p_prev, x)
         return (-1.0) ** k_max * rho**m * p
 
     def generate(
@@ -364,19 +380,20 @@ class ZernikeBasisGenerator(BasisGenerator):
         first = 0 if ordering == "ansi" else 1
         n_available = self._FRINGE_TERMS if ordering == "fringe" else None
 
+        # Recurrence states and angular factors, shared by the modes of one m.
+        radial_state: dict = {}
+        angular: dict = {}
+
         def candidates(start: int, count: int) -> np.ndarray:
             columns = []
             if n_available is not None:
                 count = min(count, n_available - start)
-            for j in range(start + first, start + count + first):
-                n, m = index_to_nm(j)
-                radial = self._radial_function(n, abs(m), rho)
-                if m > 0:
-                    columns.append(np.sqrt(2.0) * radial * np.cos(m * theta))
-                elif m < 0:
-                    columns.append(np.sqrt(2.0) * radial * np.sin(-m * theta))
-                else:
-                    columns.append(radial)
+            orders = index_to_nm(np.arange(start + first, start + count + first))
+            for n, m in zip(orders[0].tolist(), orders[1].tolist()):
+                radial = self._radial_function(n, abs(m), rho, radial_state)
+                if m != 0 and m not in angular:
+                    angular[m] = np.cos(m * theta) if m > 0 else np.sin(-m * theta)
+                columns.append(np.sqrt(2.0) * radial * angular[m] if m != 0 else radial)
             return np.column_stack(columns)
 
         if n_available is not None and n_modes > n_available:
