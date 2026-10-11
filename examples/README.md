@@ -7,6 +7,7 @@ Scripts that do one job end to end. Run any of them with `--help` for all option
 | [`quickstart.py`](quickstart.py) | the shortest useful program: KL modes for a DM, saved to `kl_m2c.npz` |
 | [`make_m2c.py`](make_m2c.py) | build any basis for any geometry (square/hexagonal grid, mask, positions file, obstruction, spiders) and save it as `.npz` or FITS |
 | [`dm_kl.py`](dm_kl.py) | KL modes of a DM from Gaussian or measured influence functions |
+| [`dm_surface.py`](dm_surface.py) | DM surfaces with `DeformableMirror`: separable fast path against the influence matrix (accuracy and timing), and the surface error of a misregistered DM |
 | [`compare_bases.py`](compare_bases.py) | turbulence residual versus number of modes for KL, Zernike, Fourier (or DM-KL and fitted Zernikes with `--dm`) |
 | [`phase_screens.py`](phase_screens.py) | random Von Kármán phase screens on actuators or pupil pixels, from KL eigenvalues |
 | [`calibration.py`](calibration.py) | interaction-matrix error of zonal, Hadamard and zonal-fast calibration on a toy AO system |

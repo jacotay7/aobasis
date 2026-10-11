@@ -2,10 +2,11 @@ import warnings
 
 import numpy as np
 from typing import Callable, Optional
-from scipy.special import kv, gamma
+from scipy.special import gamma
 from scipy.linalg import eigh
 from scipy.spatial.distance import pdist, squareform
 from .base import BasisGenerator, RemoveSpec, _check_normalize, mode_scales
+from .turbulence import _von_karman_variance, von_karman_covariance
 
 # CuPy is optional and slow to import, so it is loaded on first GPU use.
 _CUPY_BACKEND = None  # (cupy module, K_{5/6} kernel) once loaded, False if unavailable
@@ -338,8 +339,7 @@ class KLBasisGenerator(BasisGenerator):
 
     def _sigma2(self) -> float:
         """Von Kármán phase variance (rad² at r0_wavelength)."""
-        A = (5.0/6.0) * (6.88/2.0) * gamma(5.0/6.0) / (gamma(1.0/6.0) * np.pi**(5.0/3.0))
-        return float(A * (self.outer_scale / self.fried_parameter)**(5.0/3.0))
+        return _von_karman_variance(self.fried_parameter, self.outer_scale)
 
     def _von_karman_covariance(self) -> np.ndarray:
         """Compute the Von Karman phase covariance matrix."""
@@ -348,36 +348,22 @@ class KLBasisGenerator(BasisGenerator):
         else:
             return self._von_karman_covariance_cpu()
 
-    def _covariance_of_distance(self, r: np.ndarray) -> np.ndarray:
-        """Phase covariance (rad² at r0_wavelength) at separations ``r`` > 0.
-
-        For Kolmogorov turbulence this is ``-D(r) / 2``, which equals the
-        covariance up to a constant that piston removal cancels.
-        """
-        r0 = self.fried_parameter
-        if self.kolmogorov:
-            return -0.5 * 6.88 * (r / r0) ** (5.0 / 3.0)
-        nu = 5.0 / 6.0
-        u = 2 * np.pi * r / self.outer_scale
-        out = np.full_like(r, self._sigma2(), dtype=float)
-        mask = r > 1e-9
-        out[mask] = self._sigma2() * 2 ** (1 - nu) / gamma(nu) * u[mask] ** nu * kv(nu, u[mask])
-        return out
-
     def _von_karman_covariance_cpu(self) -> np.ndarray:
         """Compute the Von Karman phase covariance matrix on CPU.
 
-        The covariance depends only on distance, and actuator grids have few
-        distinct distances, so it is evaluated once per distinct distance.
+        Finite outer scale: :func:`aobasis.von_karman_covariance` (rad² at
+        r0_wavelength). Kolmogorov: ``-D(r) / 2`` with the structure function
+        ``D(r) = 6.88 (r / r0)^(5/3)``, which equals the covariance up to a
+        constant that piston removal cancels.
         """
+        if not self.kolmogorov:
+            return von_karman_covariance(self.positions, r0=self.fried_parameter, L0=self.outer_scale)
         distances = pdist(self.positions)
-        # np.unique(..., return_inverse=True) argsorts all N^2/2 distances;
-        # sorting the values and looking each one up is 1.4-1.8x faster and
-        # gives the same indices (every distance is one of the unique values).
+        # Evaluated once per distinct distance (see von_karman_covariance).
         unique = np.unique(distances)
         inverse = np.searchsorted(unique, distances)
-        cov = squareform(self._covariance_of_distance(unique)[inverse])
-        np.fill_diagonal(cov, 0.0 if self.kolmogorov else self._sigma2())
+        cov = squareform((-0.5 * 6.88 * (unique / self.fried_parameter) ** (5.0 / 3.0))[inverse])
+        np.fill_diagonal(cov, 0.0)
         return cov
 
     def _von_karman_covariance_gpu(self):
