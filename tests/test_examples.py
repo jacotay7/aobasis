@@ -64,3 +64,8 @@ def test_calibration():
 
 def test_benchmark():
     _load("benchmark").main(["--grid-sizes", "8", "--n-modes", "10"])
+
+
+def test_dm_surface():
+    result = _load("dm_surface").main(["--n-actuators", "9", "--n-pixels", "24", "--repeats", "1", "--batch", "3"])
+    assert result["max_rel_error"] < 1e-13 and 0 < result["misregistration_rms"] < 1

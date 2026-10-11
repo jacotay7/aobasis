@@ -74,6 +74,18 @@ Unknown options raise `TypeError`. Zernike, Fourier and Hadamard warn when the m
 
 **Influence functions.** `fit_to_influence_functions` gives least-squares commands whose DM surface matches modes sampled on the pupil. `gaussian_influence_functions` and `make_pupil_points` build the inputs.
 
+**A DM model.** `DeformableMirror` turns commands into a surface on a pixel grid (indexed `[y, x]`) or at arbitrary points, with the same Gaussian influence functions. With actuators on a square lattice it uses their separability (`surface = G_y C G_x^T`), which equals `influence_matrix() @ cmd` to round-off without building the matrix: for 877 actuators on 144×144 pixels, 0.19 ms instead of 4.3 ms (14 ms on one thread) on an 8-core Intel i7-10700 (`examples/dm_surface.py`). `transformed(shift=(dx, dy), rotation_deg=..., magnification=...)` returns the misregistered DM for robustness studies.
+
+```python
+actuators = aobasis.make_circular_actuator_grid(8.0, 33)          # pitch 0.25 m
+axis = (np.arange(144) - 71.5) * (8.0 / 144)                      # pixel centres
+dm = aobasis.DeformableMirror(actuators, pitch=0.25, coupling=0.15, grid=(axis, axis))
+surface = dm.surface(np.ones(dm.n_actuators))                     # (144, 144); a batch gives (k, 144, 144)
+true_dm = dm.transformed(shift=(0.02, 0.0), rotation_deg=0.5)     # the DM as it really sits in the pupil
+```
+
+**Turbulence covariance.** `von_karman_covariance(points_a, points_b=None, r0=..., L0=..., wavelength=500e-9, units="phase" | "opd")` is the von Kármán covariance between points (rad² of phase at the wavelength of `r0`, or m² of OPD), e.g. an MMSE prior on the actuators; `von_karman_covariance_of_distance` takes separations. KL modes are built from the same function. Its structure function tends to `6.88 (r/r0)^(5/3)` for `r << L0`.
+
 **Using and keeping a basis.**
 - `command_to_mode_matrix` and `fit_coefficients` give modal coefficients.
 - `basis_report` (or `generator.report()`) summarizes rank, conditioning, orthogonality and piston content.
@@ -96,6 +108,7 @@ Unknown options raise `TypeError`. Zernike, Fourier and Hadamard warn when the m
 ```bash
 python examples/make_m2c.py kl --grid-size 20 --n-modes 100 --remove tiptilt -o kl.fits --plot kl.png
 python examples/dm_kl.py --n-modes 80 -o dmkl.fits
+python examples/dm_surface.py --n-pixels 144
 python examples/calibration.py
 ```
 

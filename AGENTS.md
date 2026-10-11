@@ -21,6 +21,8 @@ src/aobasis/dm_kl.py     KL of the DM surface from influence functions
 src/aobasis/zernike.py   Zernike (Noll/ANSI/Fringe, annular) and index helpers
 src/aobasis/fourier.py, hadamard.py, zonal.py   the other bases
 src/aobasis/influence.py, utils.py, analysis.py geometry, influence functions, reports
+src/aobasis/dm.py        DeformableMirror: Gaussian-IF surfaces (separable fast path), misregistration
+src/aobasis/turbulence.py von_karman_covariance: the one von Karman covariance (KL uses it)
 tests/                   pytest; GPU tests skip without CuPy and a CUDA device
 examples/                runnable scripts (CI runs them); examples/benchmark.py times the bases
 tutorials/               notebooks (CI executes them)
@@ -64,6 +66,18 @@ publish workflow uploads to PyPI.
   the values and `searchsorted` instead (same indices).
 - For full bases the rank check (a column-pivoted QR, LAPACK `geqp3`) is most
   of the time of Zernike, Fourier and Hadamard; `check_rank=False` skips it.
+- The von Karman covariance uses the rounded `6.88` (in `_von_karman_variance`)
+  rather than `2 (24/5 Gamma(6/5))^(5/6) = 6.8839`, so its structure function
+  tends to exactly `6.88 (r/r0)^(5/3)`. Changing it changes every KL
+  eigenvalue (and modes in the last bits). pyturb's `phase_covariance` uses
+  the unrounded value (0.06% higher variance).
+- `2 [C(0) - C(r)]` from `von_karman_covariance` loses digits when
+  `L0 / r0` is huge (`C(0)` grows as `(L0/r0)^(5/3)`); test the Kolmogorov
+  limit with `L0 <= 1e4` m.
+- `DeformableMirror` picks the separable path from a cost estimate; a rotated
+  DM (or random actuators) has as many lattice rows/columns as actuators and
+  falls back to the cached influence matrix (`n_pixels x n_actuators`
+  floats). `method="separable"` still works there, only slower.
 - The GPU KL path always computes every eigenpair (CuPy has no partial
   solver) and in float64, so a card with little float64 throughput (e.g. an
   RTX A400) is slower than the CPU.

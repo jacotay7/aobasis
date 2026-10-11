@@ -108,7 +108,7 @@ def test_covariance_matches_unique_with_inverse():
     gen = KLBasisGenerator(positions)
     distances = pdist(positions)
     unique, inverse = np.unique(distances, return_inverse=True)
-    expected = squareform(gen._covariance_of_distance(unique)[inverse.ravel()])
+    expected = squareform(aobasis.turbulence._phase_covariance_of_distance(unique, 0.16, 30.0)[inverse.ravel()])
     np.fill_diagonal(expected, gen._sigma2())
     assert np.array_equal(gen._von_karman_covariance_cpu(), expected)
 

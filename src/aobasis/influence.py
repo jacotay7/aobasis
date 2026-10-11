@@ -88,7 +88,9 @@ def gaussian_influence_functions(
     if not np.isscalar(coupling) or not np.isfinite(coupling) or not 0 < coupling < 1:
         raise ValueError("coupling must be in (0, 1).")
     pitch = _nearest_neighbour_distance(actuators) if pitch is None else _validate_positive_finite_scalar(pitch, "pitch")
-    d2 = np.sum((points[:, None, :] - actuators[None, :, :]) ** 2, axis=-1)
+    # dx^2 + dy^2 equals np.sum(diff**2, axis=-1) bit for bit, without the
+    # (n_points, n_actuators, 2) temporary.
+    d2 = (points[:, None, 0] - actuators[None, :, 0]) ** 2 + (points[:, None, 1] - actuators[None, :, 1]) ** 2
     return np.exp(np.log(coupling) * d2 / pitch**2)
 
 

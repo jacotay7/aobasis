@@ -30,6 +30,8 @@ from .zonal import ZonalBasisGenerator, ZonalFastBasisGenerator
 from .hadamard import HadamardBasisGenerator
 from .analysis import BasisReport, basis_report, command_to_mode_matrix, fit_coefficients
 from .influence import fit_to_influence_functions, gaussian_influence_functions, make_pupil_points
+from .dm import DeformableMirror
+from .turbulence import von_karman_covariance, von_karman_covariance_of_distance
 from .utils import (
     make_circular_actuator_grid,
     make_concentric_actuator_grid,
@@ -66,6 +68,9 @@ __all__ = [
     "make_pupil_points",
     "gaussian_influence_functions",
     "fit_to_influence_functions",
+    "DeformableMirror",
+    "von_karman_covariance",
+    "von_karman_covariance_of_distance",
     "fit_coefficients",
     "command_to_mode_matrix",
     "basis_report",

@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.3.0] - 2026-10-10
+
+A deformable-mirror model and a public von Kármán covariance (#66). Every KL mode and eigenvalue, DM KL basis and Gaussian influence matrix is bit-for-bit the same as in 2.2.0 (checked on 497 arrays: CPU and GPU KL and covariances, von Kármán and Kolmogorov, with and without piston/tip-tilt removal and normalization, DM KL, influence functions).
+
+### Added
+
+- **`DeformableMirror(positions, pitch=None, coupling=0.15, grid=(y, x) | points=...)`**: Gaussian influence functions (`coupling ** (r² / pitch²)`, as `gaussian_influence_functions`) evaluated on a pixel grid, given by its row and column pixel-centre coordinates, or at arbitrary points.
+  - `surface(cmd)` takes one command vector or an `(n_actuators, n_cmds)` batch and returns `[y, x]` images (`(ny, nx)` or `(n_cmds, ny, nx)`), or values at the points.
+  - On a grid with actuators on a square lattice (any square grid, clipped or not), `surface` uses the separability of the Gaussian, `G_y C G_xᵀ`. It equals `influence_matrix() @ cmd` to round-off (4e-16 relative), needs no `(n_pixels, n_actuators)` matrix, and takes 0.19 ms instead of 4.3 ms (14 ms on one thread) for 877 actuators on 144 × 144 pixels on an Intel i7-10700. Otherwise (points, a rotated DM, scattered actuators) it uses the cached influence matrix; `method="separable" | "matrix"` forces either.
+  - `influence_matrix()` returns the `(n_points, n_actuators)` matrix (cached, read-only).
+  - `transformed(shift=(dx, dy), rotation_deg=0, magnification=1)` returns the misregistered DM: actuators moved by `magnification * R @ x + shift` about the pupil origin and the pitch scaled by `magnification`, for "true versus calibrated DM" studies.
+- **`von_karman_covariance(points_a, points_b=None, *, r0, L0, wavelength=500e-9, units="phase" | "opd")`**: the von Kármán covariance between points, in rad² of phase at the wavelength of `r0` or in m² of OPD, e.g. as an MMSE prior; `von_karman_covariance_of_distance(r, ...)` takes separations. They are the definition `KLBasisGenerator` used privately: variance `0.0863 (L0/r0)^(5/3)` and `K_{5/6}` form, with a structure function that tends to `6.88 (r/r0)^(5/3)` for `r << L0` (with the von Kármán correction `1 - 1.485 (r/L0)^(1/3)`). `L0=inf` raises (the covariance is infinite).
+- `examples/dm_surface.py`: separable against matrix surfaces (accuracy and timing) and the surface error of a misregistered DM.
+
+### Changed
+
+- `KLBasisGenerator` builds its CPU covariance with `von_karman_covariance` and its variance with the same helper, so there is one implementation; the private `_covariance_of_distance` is gone.
+- `gaussian_influence_functions` computes `dx² + dy²` without an `(n_points, n_actuators, 2)` temporary (a third of the memory; identical values).
+- Tutorials 05 and 06 use the public covariance; tutorial 06 shows `DeformableMirror` and misregistration.
+
 ## [2.2.0] - 2026-10-07
 
 Faster KL and Zernike generation. Every mode, eigenvalue and warning is bit-for-bit the same as in 2.1.0 (checked on 471 bases: CPU and GPU KL, Kolmogorov, DM KL, circular and annular Zernikes in every ordering, with and without piston/tip-tilt removal and normalization). Timings on an 80-core Arm Neoverse-N1 pinned to 12 cores, with an RTX 4060:
