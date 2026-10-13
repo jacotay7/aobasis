@@ -66,6 +66,19 @@ Unknown options raise `TypeError`. Zernike, Fourier and Hadamard warn when the m
 - `noll_to_nm(j)` and `nm_to_noll(n, m)` convert between Noll indices and `(n, m)`, with `ansi_to_nm`/`nm_to_ansi` and `fringe_to_nm`/`nm_to_fringe` for the other orderings. `m > 0` is the cosine term, so Noll 2 = (1, 1) is tip along +x and Noll 3 = (1, -1) tilt along +y. They take integers or integer arrays.
 - `zernike_modes_on_mask(mask, n_modes, pupil_radius=...)` evaluates Zernikes on the pixels of a 2-D mask and returns `(n_modes, ny, nx)` images, zero outside the mask.
 
+**Petal modes.** Thick spiders (ELT petals) or segment gaps (GMT) cut the pupil into islands whose relative pistons a gradient sensor cannot see (the low-wind effect, segment phasing). `PetalBasis(pupil, threshold=1.0, min_pixels=1)` labels the fragments of a pupil image (4-connected pixels with `pupil >= threshold`; fragments under `min_pixels` pixels dropped) and gives:
+- `labels`, the `[y, x]` fragment map, and `indicators`, the `(n, ny, nx)` raw piston of each fragment;
+- `modes`, `(n - 1, ny, nx)` piston-free petal modes, orthonormal (unit RMS) over the lit pupil;
+- `petal_pistons(phase, smooth_modes=None)`, the fragment pistons of a phase map minus their (area-weighted) mean. Fragment means count tip/tilt as petal, since a tilt has a different mean on every petal; pass a few low-order modes (e.g. `zernike_modes_on_mask(basis.lit, 6, ...)`) and they are fitted jointly, so only the steps are reported. `petal_reconstructor(smooth_modes)` returns the same map as weight images to reuse.
+
+`petal_modes(pupil, ..., raw=False)` returns the mode images directly and `label_fragments(pupil, ...)` only the labels.
+
+```python
+petals = aobasis.PetalBasis(pupil, min_pixels=20)        # pupil: (ny, nx) amplitude in [0, 1]
+smooth = aobasis.zernike_modes_on_mask(petals.lit, 6, pupil_radius=pupil.shape[1] / 2)
+pistons = petals.petal_pistons(phase, smooth_modes=smooth)  # (n_fragments,), tilt-insensitive
+```
+
 **Geometry.**
 - `make_circular_actuator_grid` builds a square grid by `grid_size` or `pitch`, with actuators on the rim or in cell centres.
 - `make_hexagonal_actuator_grid` and `make_concentric_actuator_grid` cover other layouts.
