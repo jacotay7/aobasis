@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Petal (fragment-piston) modes** for pupils cut into disconnected fragments by thick spiders or segment gaps (ELT petals, GMT segments, low-wind-effect studies), in `aobasis.petal`:
+  - `label_fragments(pupil, threshold=1.0, min_pixels=1)` labels the 4-connected fragments of the pixels with `pupil >= threshold` (default: fully lit pixels only, so a spider that grazes a pixel still separates its neighbours), drops fragments smaller than `min_pixels` and numbers the rest in raster order (`scipy.ndimage.label`).
+  - `PetalBasis(pupil, threshold=1.0, min_pixels=1)` has the fragment map (`labels`, `lit`, `areas`), the raw per-fragment `indicators` `(n, ny, nx)` and the `n - 1` petal `modes` `(n - 1, ny, nx)`: piston-free and orthonormal (unit RMS) over the lit pupil, as a fixed area-weighted Helmert basis (mode `k` is positive on fragment `k`, negative on the later fragments, zero on the earlier ones) with exact zeros.
+  - `PetalBasis.petal_pistons(phase, smooth_modes=None)` returns the fragment pistons of a phase map (or a stack) minus their area-weighted mean. With `smooth_modes` (e.g. a few `zernike_modes_on_mask` images) pistons and smooth modes are fitted jointly by least squares, so tip/tilt and other low-order terms are not counted as petal (the fragment means of a tilt are not zero); a piston among the smooth modes is ignored, and smooth modes that can reproduce a petal pattern raise a `RuntimeWarning`. `petal_reconstructor(smooth_modes)` returns the same linear map as `(n, ny, nx)` weight images, and `piston_map(pistons)` the image of given fragment pistons.
+  - `petal_modes(pupil, threshold=1.0, min_pixels=1, raw=False)` returns the mode (or indicator) images directly. A pupil in one piece gives `(0, ny, nx)`.
+
 ## [2.3.0] - 2026-10-10
 
 A deformable-mirror model and a public von Kármán covariance (#66). Every KL mode and eigenvalue, DM KL basis and Gaussian influence matrix is bit-for-bit the same as in 2.2.0 (checked on 497 arrays: CPU and GPU KL and covariances, von Kármán and Kolmogorov, with and without piston/tip-tilt removal and normalization, DM KL, influence functions).

@@ -28,6 +28,7 @@ from .zernike import (
 from .fourier import FourierBasisGenerator
 from .zonal import ZonalBasisGenerator, ZonalFastBasisGenerator
 from .hadamard import HadamardBasisGenerator
+from .petal import PetalBasis, label_fragments, petal_modes
 from .analysis import BasisReport, basis_report, command_to_mode_matrix, fit_coefficients
 from .influence import fit_to_influence_functions, gaussian_influence_functions, make_pupil_points
 from .dm import DeformableMirror
@@ -62,6 +63,9 @@ __all__ = [
     "ZonalBasisGenerator",
     "ZonalFastBasisGenerator",
     "HadamardBasisGenerator",
+    "PetalBasis",
+    "petal_modes",
+    "label_fragments",
     "make_circular_actuator_grid",
     "make_concentric_actuator_grid",
     "make_hexagonal_actuator_grid",

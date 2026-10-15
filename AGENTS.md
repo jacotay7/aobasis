@@ -8,9 +8,10 @@ Gotchas entry when something led you astray.
 
 Modal bases for adaptive-optics deformable mirrors (KL, DM KL, Zernike,
 Fourier, Hadamard, zonal). Every generator takes actuator positions and
-returns an `(n_actuators, n_modes)` modal-to-command matrix. Pure Python on
-NumPy and SciPy; CuPy is optional (GPU KL). It supports Python 3.8-3.14, so
-no syntax or typing newer than 3.8 at runtime.
+returns an `(n_actuators, n_modes)` modal-to-command matrix; the pixel-image
+helpers (`zernike_modes_on_mask`, the petal modes) return `(n_modes, ny, nx)`
+stacks instead. Pure Python on NumPy and SciPy; CuPy is optional (GPU KL). It
+supports Python 3.8-3.14, so no syntax or typing newer than 3.8 at runtime.
 
 ## Layout
 
@@ -23,6 +24,7 @@ src/aobasis/fourier.py, hadamard.py, zonal.py   the other bases
 src/aobasis/influence.py, utils.py, analysis.py geometry, influence functions, reports
 src/aobasis/dm.py        DeformableMirror: Gaussian-IF surfaces (separable fast path), misregistration
 src/aobasis/turbulence.py von_karman_covariance: the one von Karman covariance (KL uses it)
+src/aobasis/petal.py     petal (fragment-piston) modes of a pupil image; joint petal/low-order fit
 tests/                   pytest; GPU tests skip without CuPy and a CUDA device
 examples/                runnable scripts (CI runs them); examples/benchmark.py times the bases
 tutorials/               notebooks (CI executes them)
