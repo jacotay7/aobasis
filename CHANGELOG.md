@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-10-18
+
 ### Added
 
 - **Petal (fragment-piston) modes** for pupils cut into disconnected fragments by thick spiders or segment gaps (ELT petals, GMT segments, low-wind-effect studies), in `aobasis.petal`:
